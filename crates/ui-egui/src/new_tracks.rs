@@ -96,13 +96,17 @@ impl NewTracks {
                 let forward = matches!(key, Key::ArrowRight | Key::ArrowDown);
                 match key {
                     Key::ArrowLeft | Key::ArrowRight if !m.alt => {
-                        let index = ChannelFormat::ALL.iter().position(|f| f.label() == row.format).unwrap_or(0);
-                        if let Some(next) = ChannelFormat::ALL.get(cycle_index(index, ChannelFormat::ALL.len(), forward)) {
-                            row.format = next.label().to_string();
+                        if has_format(&row.kind) {
+                            let index = ChannelFormat::ALL.iter().position(|f| f.label() == row.format).unwrap_or(0);
+                            if let Some(next) = ChannelFormat::ALL.get(cycle_index(index, ChannelFormat::ALL.len(), forward)) {
+                                row.format = next.label().to_string();
+                            }
                         }
                     }
                     Key::ArrowUp | Key::ArrowDown if m.alt => {
-                        row.timebase = if row.timebase == "ticks" { "samples" } else { "ticks" }.to_string();
+                        if has_timebase(&row.kind) {
+                            row.timebase = if row.timebase == "ticks" { "samples" } else { "ticks" }.to_string();
+                        }
                     }
                     Key::ArrowUp | Key::ArrowDown => {
                         let index = TrackKind::ALL.iter().position(|k| k.id() == row.kind).unwrap_or(0);
@@ -157,15 +161,22 @@ impl NewTracks {
                         counter.scroll_to_me(Some(egui::Align::Center));
                     }
                     ui.label("new");
-                    let format = egui::ComboBox::from_id_salt("nt_fmt")
-                        .width(widths.format)
-                        .selected_text(&row.format)
-                        .show_ui(ui, |ui| {
-                            for f in ChannelFormat::ALL {
-                                ui.selectable_value(&mut row.format, f.label().to_string(), f.label());
-                            }
-                        })
-                        .response;
+                    let format = if has_format(&row.kind) {
+                        Some(
+                            egui::ComboBox::from_id_salt("nt_fmt")
+                                .width(widths.format)
+                                .selected_text(&row.format)
+                                .show_ui(ui, |ui| {
+                                    for f in ChannelFormat::ALL {
+                                        ui.selectable_value(&mut row.format, f.label().to_string(), f.label());
+                                    }
+                                })
+                                .response,
+                        )
+                    } else {
+                        ui.allocate_space(vec2(widths.format, ui.spacing().interact_size.y));
+                        None
+                    };
                     let kind = egui::ComboBox::from_id_salt("nt_kind")
                         .width(widths.kind)
                         .selected_text(TrackKind::from_id(&row.kind).map_or("Audio Track", |k| k.label()))
@@ -177,18 +188,26 @@ impl NewTracks {
                             }
                         })
                         .response;
-                    ui.label("in");
-                    let timebase = egui::ComboBox::from_id_salt("nt_tb")
-                        .width(widths.timebase)
-                        .selected_text(if row.timebase == "ticks" { "Ticks" } else { "Samples" })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut row.timebase, "samples".to_string(), "Samples");
-                            ui.selectable_value(&mut row.timebase, "ticks".to_string(), "Ticks");
-                        })
-                        .response;
+                    let timebase = if has_timebase(&row.kind) {
+                        ui.label("in");
+                        Some(
+                            egui::ComboBox::from_id_salt("nt_tb")
+                                .width(widths.timebase)
+                                .selected_text(if row.timebase == "ticks" { "Ticks" } else { "Samples" })
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut row.timebase, "samples".to_string(), "Samples");
+                                    ui.selectable_value(&mut row.timebase, "ticks".to_string(), "Ticks");
+                                })
+                                .response,
+                        )
+                    } else {
+                        ui.allocate_space(vec2(text_width(ui, "in"), ui.spacing().interact_size.y));
+                        ui.allocate_space(vec2(widths.timebase, ui.spacing().interact_size.y));
+                        None
+                    };
                     let label = ui.label("Name:");
                     let name = ui.add(egui::TextEdit::singleline(&mut row.name).id(id.with("name")).desired_width(NAME_WIDTH)).labelled_by(label.id);
-                    if [&format, &kind, &timebase, &name].iter().any(|r| r.clicked() || r.has_focus()) {
+                    if format.iter().chain(timebase.iter()).chain([&kind, &name]).any(|r| r.clicked() || r.has_focus()) {
                         self.active = index;
                     }
                     let size = vec2(ROW_BUTTON_WIDTH, ui.spacing().interact_size.y);
@@ -269,6 +288,14 @@ pub(crate) fn set_new_track_kind(kind: &mut String, name: &mut String, next: Tra
     *kind = next.id().to_string();
 }
 
+fn has_format(kind: &str) -> bool {
+    !matches!(TrackKind::from_id(kind), Some(TrackKind::Midi | TrackKind::Vca | TrackKind::Video))
+}
+
+fn has_timebase(kind: &str) -> bool {
+    !matches!(TrackKind::from_id(kind), Some(TrackKind::Video))
+}
+
 fn cycle_index(index: usize, len: usize, forward: bool) -> usize {
     if forward {
         if index.saturating_add(1) < len { index.saturating_add(1) } else { 0 }
@@ -333,8 +360,10 @@ mod tests {
             tracks_mut(&mut h).rows[0].kind = k.id().to_string();
             h.run_steps(2);
             assert_eq!(h.get_by_value(k.label()).rect().width(), kind.width(), "{}", k.label());
-            assert_eq!(h.get_by_role_and_label(Role::TextInput, "Name:").rect(), name);
+            let current_name = h.get_by_role_and_label(Role::TextInput, "Name:").rect();
+            assert_eq!((current_name.min.x, current_name.width()), (name.min.x, name.width()));
         }
+        tracks_mut(&mut h).rows[0].kind = "audio".to_string();
         tracks_mut(&mut h).rows[0].timebase = "ticks".to_string();
         tracks_mut(&mut h).rows[0].count = 128;
         h.run_steps(2);
@@ -347,6 +376,27 @@ mod tests {
         tracks_mut(&mut h).rows[0].count = 128;
         h.run_steps(2);
         assert_eq!(h.get_by_role_and_label(Role::TextInput, "Name:").rect(), larger_font_name);
+    }
+
+    #[test]
+    fn inapplicable_fields_are_hidden_without_moving_the_other_columns() {
+        let mut h = harness();
+        let name = h.get_by_role_and_label(Role::TextInput, "Name:").rect();
+        let all_fields = h.get_all_by_role(Role::ComboBox).count();
+
+        for kind in [TrackKind::Midi, TrackKind::Vca] {
+            tracks_mut(&mut h).rows[0].kind = kind.id().to_string();
+            h.run_steps(2);
+            assert_eq!(h.get_all_by_role(Role::ComboBox).count(), all_fields - 1, "{}", kind.label());
+            let current_name = h.get_by_role_and_label(Role::TextInput, "Name:").rect();
+            assert_eq!((current_name.min.x, current_name.width()), (name.min.x, name.width()));
+        }
+
+        tracks_mut(&mut h).rows[0].kind = TrackKind::Video.id().to_string();
+        h.run_steps(2);
+        assert_eq!(h.get_all_by_role(Role::ComboBox).count(), all_fields - 2);
+        let current_name = h.get_by_role_and_label(Role::TextInput, "Name:").rect();
+        assert_eq!((current_name.min.x, current_name.width()), (name.min.x, name.width()));
     }
 
     #[test]

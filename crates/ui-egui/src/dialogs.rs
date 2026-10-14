@@ -817,17 +817,43 @@ mod tests {
     }
 
     #[test]
-    fn new_tracks_ctrl_chords_work_off_mac_and_shift_chords_add_rows() {
-        let (ctx, mut app) = tracks_dialog(egui::os::OperatingSystem::Nix);
-        let ctrl = egui::Modifiers { command: true, ctrl: true, ..Default::default() };
-        dialog_frame(&ctx, &mut app, vec![key(egui::Key::ArrowDown, ctrl)]);
-        assert_eq!(track_fields(&app).2, "aux");
-        dialog_frame(&ctx, &mut app, vec![key(egui::Key::ArrowDown, egui::Modifiers { shift: true, ..ctrl })]);
-        assert_eq!(track_fields(&app).2, "audio");
-        let Some(Dialog::NewTracks(tracks)) = &app.dialogs.open else { panic!("missing dialog") };
-        assert_eq!(tracks.rows.len(), 2);
-        assert_eq!(tracks.rows[0].kind, "aux");
-        assert_eq!(track_fields(&app).0, 1);
+    fn new_tracks_windows_and_linux_chords_cover_every_field_and_row_action() {
+        for os in [egui::os::OperatingSystem::Windows, egui::os::OperatingSystem::Nix] {
+            let (ctx, mut app) = tracks_dialog(os);
+            let ctrl = egui::Modifiers { command: true, ctrl: true, ..Default::default() };
+
+            dialog_frame(&ctx, &mut app, vec![key(egui::Key::ArrowRight, ctrl)]);
+            assert_eq!(track_fields(&app).1, "Stereo");
+            dialog_frame(&ctx, &mut app, vec![key(egui::Key::ArrowLeft, ctrl)]);
+            assert_eq!(track_fields(&app).1, "Mono");
+            dialog_frame(&ctx, &mut app, vec![key(egui::Key::ArrowDown, ctrl)]);
+            assert_eq!(track_fields(&app).2, "aux");
+            dialog_frame(&ctx, &mut app, vec![key(egui::Key::ArrowUp, ctrl)]);
+            assert_eq!(track_fields(&app).2, "audio");
+
+            let ctrl_alt = egui::Modifiers { alt: true, ..ctrl };
+            dialog_frame(&ctx, &mut app, vec![key(egui::Key::ArrowDown, ctrl_alt)]);
+            assert_eq!(track_fields(&app).3, "ticks");
+            dialog_frame(&ctx, &mut app, vec![key(egui::Key::ArrowUp, ctrl_alt)]);
+            assert_eq!(track_fields(&app).3, "samples");
+
+            for alt in [false, true] {
+                let rows = egui::Modifiers { shift: true, alt, ..ctrl };
+                dialog_frame(&ctx, &mut app, vec![key(egui::Key::ArrowDown, rows)]);
+                let Some(Dialog::NewTracks(tracks)) = &app.dialogs.open else { panic!("missing dialog") };
+                assert_eq!(tracks.rows.len(), 2);
+                dialog_frame(&ctx, &mut app, vec![key(egui::Key::ArrowUp, rows)]);
+                let Some(Dialog::NewTracks(tracks)) = &app.dialogs.open else { panic!("missing dialog") };
+                assert_eq!(tracks.rows.len(), 1);
+            }
+
+            let Some(Dialog::NewTracks(tracks)) = &mut app.dialogs.open else { panic!("missing dialog") };
+            tracks.rows[0].kind = "video".into();
+            tracks.rows[0].timebase = "ticks".into();
+            dialog_frame(&ctx, &mut app, vec![key(egui::Key::ArrowRight, ctrl), key(egui::Key::ArrowUp, ctrl_alt)]);
+            assert_eq!(track_fields(&app).1, "Mono", "Video has no format control");
+            assert_eq!(track_fields(&app).3, "ticks", "Video has no timebase control");
+        }
     }
 
     #[test]
