@@ -482,9 +482,6 @@ pub(crate) fn handle_counter_keyboard(app: &mut SoundApp, ui: &mut Ui) {
         return;
     }
     if enter {
-        if edit.finish_calculation() {
-            return;
-        }
         apply_counter_value(app, target, value);
         clear_counter_edit(app, ui);
     }
@@ -947,7 +944,7 @@ mod counter_input_tests {
     }
 
     #[test]
-    fn calculator_entry_previews_then_applies_on_the_second_enter() {
+    fn calculator_entry_applies_and_closes_on_the_first_enter() {
         let ctx = egui::Context::default();
         let mut app = app();
         app.run("view.main_counter", json!({"format": "samples"})).unwrap();
@@ -960,11 +957,10 @@ mod counter_input_tests {
         assert_eq!(app.counter_edit.as_ref().map(|edit| edit.value), Some(1_250));
         assert_eq!(app.engine.session().edit.selection, Range::new(1_000, 3_000));
 
-        for applied in [false, true] {
-            let enter = Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE };
-            let mut output = ctx.run_ui(RawInput { events: vec![enter], ..Default::default() }, |ui| handle_counter_keyboard(&mut app, ui));
-            output.textures_delta.clear();
-            assert_eq!(app.engine.session().edit.selection.start == 1_250, applied);
-        }
+        let enter = Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE };
+        let mut output = ctx.run_ui(RawInput { events: vec![enter], ..Default::default() }, |ui| handle_counter_keyboard(&mut app, ui));
+        output.textures_delta.clear();
+        assert_eq!(app.engine.session().edit.selection.start, 1_250);
+        assert!(app.counter_edit.is_none());
     }
 }

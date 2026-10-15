@@ -82,15 +82,6 @@ impl CounterEdit {
         self.calculation = Some((direction.signum(), self.value));
     }
 
-    /// Accept the previewed result while leaving the counter active for the final Enter.
-    pub fn finish_calculation(&mut self) -> bool {
-        let active = self.calculation.take().is_some();
-        if active {
-            self.typed.clear();
-        }
-        active
-    }
-
     pub fn step(&mut self, session: &Session, direction: i64) {
         self.typed.clear();
         self.calculation = None;
@@ -381,8 +372,6 @@ mod tests {
             edit.digit(&session, digit);
         }
         assert_eq!(edit.display(&session), "0:11.500");
-        assert!(edit.finish_calculation());
-        assert!(!edit.finish_calculation());
 
         edit.begin_calculation(-1);
         for digit in "2500".chars() {
