@@ -223,11 +223,13 @@ fn counters(app: &mut SoundApp, ui: &mut Ui) {
         (s.edit.main_counter, s.edit.sub_counter, s.edit.selection)
     };
     let pos = app.position();
-    let (r, _) = ui.allocate_exact_size(vec2(586.0, 64.0), Sense::hover());
+    let (r, _) = ui.allocate_exact_size(vec2(430.0, 64.0), Sense::hover());
     ui.painter().rect(r, CornerRadius::same(4), t.counter_bg, Stroke::new(1.0, t.counter_border), StrokeKind::Inside);
-    let main_value = Rect::from_min_max(pos2(r.min.x + 6.0, r.min.y + 3.0), pos2(r.min.x + 230.0, r.min.y + 41.0));
-    counter_field(app, ui, main_value, CounterTarget::Main, pos, main_fmt, 25.0, "Main Counter");
-    let main_menu = Rect::from_min_max(pos2(r.min.x + 230.0, r.min.y + 3.0), pos2(r.min.x + 244.0, r.min.y + 41.0));
+    let main_y = r.min.y + 14.0;
+    ui.painter().text(pos2(r.min.x + 10.0, main_y), Align2::LEFT_CENTER, "Main", regular(10.0), t.counter_label);
+    let main_value = Rect::from_min_max(pos2(r.min.x + 45.0, r.min.y + 4.0), pos2(r.min.x + 188.0, r.min.y + 24.0));
+    counter_field(app, ui, main_value, CounterTarget::Main, pos, main_fmt, 21.0, "Main Counter");
+    let main_menu = Rect::from_min_max(pos2(r.min.x + 189.0, r.min.y + 4.0), pos2(r.min.x + 205.0, r.min.y + 24.0));
     let main_resp = ui.interact(main_menu, ui.id().with("main_counter_format"), Sense::click());
     icons::draw(ui.painter(), Rect::from_center_size(main_menu.center(), vec2(10.0, 10.0)), "triangle_down", t.text_dim);
     egui::Popup::menu(&main_resp).show(|ui| {
@@ -238,20 +240,11 @@ fn counters(app: &mut SoundApp, ui: &mut Ui) {
             }
         }
     });
-    let rows = [("Start", CounterTarget::Start, sel.start), ("End", CounterTarget::End, sel.end), ("Length", CounterTarget::Length, sel.len())];
-    for (i, (label, target, value)) in rows.into_iter().enumerate() {
-        let y = r.min.y + 9.0 + i as f32 * 13.0;
-        ui.painter().text(pos2(r.min.x + 283.0, y), Align2::RIGHT_CENTER, label, regular(11.0), t.counter_label);
-        let field = Rect::from_min_max(pos2(r.min.x + 288.0, y - 6.0), pos2(r.max.x - 6.0, y + 6.0));
-        counter_field(app, ui, field, target, value, main_fmt, 11.0, label);
-    }
-
-    let y = r.max.y - 10.0;
-    ui.painter().line_segment([pos2(r.min.x + 6.0, r.max.y - 21.0), pos2(r.max.x - 6.0, r.max.y - 21.0)], Stroke::new(1.0, t.counter_rule));
-    ui.painter().text(pos2(r.min.x + 10.0, y), Align2::LEFT_CENTER, "Sub", regular(11.0), t.counter_label);
+    let sub_y = r.min.y + 34.0;
+    ui.painter().text(pos2(r.min.x + 10.0, sub_y), Align2::LEFT_CENTER, "Sub", regular(10.0), t.counter_label);
     let sub_text = sub_fmt.map_or_else(|| "—".into(), |format| fmt_pos(app, pos, format));
-    ui.painter().text(pos2(r.min.x + 139.0, y), Align2::RIGHT_CENTER, sub_text, mono(11.0), t.counter_text);
-    let sub_menu = Rect::from_min_max(pos2(r.min.x + 142.0, r.max.y - 20.0), pos2(r.min.x + 155.0, r.max.y - 1.0));
+    fitted_text(ui, Rect::from_min_max(pos2(r.min.x + 45.0, r.min.y + 25.0), pos2(r.min.x + 188.0, r.min.y + 44.0)), &sub_text, 20.0, t.counter_text);
+    let sub_menu = Rect::from_min_max(pos2(r.min.x + 189.0, r.min.y + 25.0), pos2(r.min.x + 205.0, r.min.y + 44.0));
     let sub_resp = ui.interact(sub_menu, ui.id().with("sub_counter_format"), Sense::click());
     icons::draw(ui.painter(), Rect::from_center_size(sub_menu.center(), vec2(9.0, 9.0)), "triangle_down", t.text_dim);
     egui::Popup::menu(&sub_resp).show(|ui| {
@@ -268,15 +261,34 @@ fn counters(app: &mut SoundApp, ui: &mut Ui) {
         }
     });
 
+    let rows = [("Start", CounterTarget::Start, sel.start), ("End", CounterTarget::End, sel.end), ("Length", CounterTarget::Length, sel.len())];
+    for (i, (label, target, value)) in rows.into_iter().enumerate() {
+        let y = r.min.y + 9.0 + i as f32 * 13.0;
+        ui.painter().text(pos2(r.min.x + 246.0, y), Align2::RIGHT_CENTER, label, regular(10.0), t.counter_label);
+        let field = Rect::from_min_max(pos2(r.min.x + 251.0, y - 6.0), pos2(r.min.x + 334.0, y + 6.0));
+        counter_field(app, ui, field, target, value, main_fmt, 10.0, label);
+    }
+
+    let y = r.max.y - 10.0;
+    ui.painter().line_segment([pos2(r.min.x + 6.0, r.max.y - 21.0), pos2(r.max.x - 6.0, r.max.y - 21.0)], Stroke::new(1.0, t.counter_rule));
     let cursor_at = app.cursor_readout.as_ref().map_or_else(|| "—".into(), |(at, _)| fmt_pos(app, *at, main_fmt));
     let cursor_value = app.cursor_readout.as_ref().map_or("—", |(_, value)| value.as_str());
-    for x in [159.0, 292.0, 366.0] {
+    for x in [160.0, 212.0] {
         ui.painter().vline(r.min.x + x, r.max.y - 19.0..=r.max.y - 3.0, Stroke::new(1.0, t.counter_rule));
     }
-    ui.painter().text(pos2(r.min.x + 164.0, y), Align2::LEFT_CENTER, "Cursor", regular(10.0), t.counter_label);
-    ui.painter().text(pos2(r.min.x + 286.0, y), Align2::RIGHT_CENTER, cursor_at, mono(10.0), t.counter_text);
-    ui.painter().text(pos2(r.min.x + 360.0, y), Align2::RIGHT_CENTER, cursor_value, mono(10.0), t.counter_text);
-    status_indicators(app, ui, Rect::from_min_max(pos2(r.min.x + 371.0, r.max.y - 20.0), pos2(r.max.x - 5.0, r.max.y - 2.0)));
+    ui.painter().text(pos2(r.min.x + 10.0, y), Align2::LEFT_CENTER, "Cursor", regular(9.5), t.counter_label);
+    ui.painter().text(pos2(r.min.x + 156.0, y), Align2::RIGHT_CENTER, cursor_at, mono(9.5), t.counter_text);
+    icons::draw(ui.painter(), Rect::from_center_size(pos2(r.min.x + 171.0, y), vec2(14.0, 12.0)), "wave", t.counter_text);
+    ui.painter().text(pos2(r.min.x + 207.0, y), Align2::RIGHT_CENTER, cursor_value, mono(9.5), t.counter_text);
+    status_indicators(app, ui, Rect::from_min_max(pos2(r.min.x + 216.0, r.max.y - 19.0), pos2(r.max.x - 5.0, r.max.y - 3.0)));
+}
+
+fn fitted_text(ui: &Ui, rect: Rect, text: &str, maximum_size: f32, color: Color32) {
+    let mut size = maximum_size;
+    while size > 12.0 && ui.painter().layout_no_wrap(text.into(), mono(size), color).size().x > rect.width() {
+        size -= 1.0;
+    }
+    ui.painter().text(pos2(rect.max.x, rect.center().y), Align2::RIGHT_CENTER, text, mono(size), color);
 }
 
 fn counter_id(target: CounterTarget) -> egui::Id {
@@ -296,21 +308,32 @@ fn counter_field(app: &mut SoundApp, ui: &mut Ui, rect: Rect, target: CounterTar
         .as_ref()
         .filter(|edit| edit.target == target && edit.format == format)
         .map_or_else(|| counter_display(app.engine.session(), target, value, format), |edit| edit.display(app.engine.session()));
-    let font = mono(size);
+    let mut fitted_size = size;
+    while fitted_size > 9.0 && ui.painter().layout_no_wrap(shown.clone(), mono(fitted_size), t.counter_text).size().x > rect.width() {
+        fitted_size -= 1.0;
+    }
+    let font = mono(fitted_size);
     let galley = ui.painter().layout_no_wrap(shown.clone(), font.clone(), t.counter_text);
     let text_left = rect.max.x - galley.size().x;
-    if let Some(edit) = app.counter_edit.as_ref().filter(|edit| edit.target == target && edit.format == format)
-        && let Some(unit) = edit.unit
-        && let Some(range) = component_ranges(&shown, format).get(unit)
-    {
+    let highlight = app.counter_edit.as_ref().filter(|edit| edit.target == target && edit.format == format).map(|edit| {
         let char_width = ui.painter().layout_no_wrap("0".into(), font.clone(), t.counter_text).size().x;
-        let highlight = Rect::from_min_max(
-            pos2(text_left + range.start as f32 * char_width, rect.min.y),
-            pos2(text_left + range.end as f32 * char_width, rect.max.y),
-        );
-        ui.painter().rect_filled(highlight, 1.0, t.selection);
+        edit.unit.and_then(|unit| component_ranges(&shown, format).get(unit).cloned()).map_or_else(
+            || Rect::from_min_max(pos2(text_left, rect.min.y), pos2(rect.max.x, rect.max.y)),
+            |range| {
+                Rect::from_min_max(
+                    pos2(text_left + range.start as f32 * char_width, rect.min.y),
+                    pos2(text_left + range.end as f32 * char_width, rect.max.y),
+                )
+            },
+        )
+    });
+    if let Some(highlight) = highlight {
+        ui.painter().rect_filled(highlight, 1.0, t.counter_text.gamma_multiply(0.86));
     }
-    ui.painter().text(pos2(rect.max.x, rect.center().y), Align2::RIGHT_CENTER, &shown, font, t.counter_text);
+    ui.painter().text(pos2(rect.max.x, rect.center().y), Align2::RIGHT_CENTER, &shown, font.clone(), t.counter_text);
+    if let Some(highlight) = highlight {
+        ui.painter().with_clip_rect(highlight).text(pos2(rect.max.x, rect.center().y), Align2::RIGHT_CENTER, &shown, font.clone(), t.counter_bg);
+    }
     let response = ui.interact(rect, counter_id(target), Sense::click());
     response.clone().widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, label));
     let active_here = app.counter_edit.as_ref().is_some_and(|edit| edit.target == target && edit.format == format);
@@ -318,15 +341,21 @@ fn counter_field(app: &mut SoundApp, ui: &mut Ui, rect: Rect, target: CounterTar
         clear_counter_edit(app, ui);
     }
     if response.clicked() {
-        let unit = response.interact_pointer_pos().and_then(|point| {
-            if point.x < text_left || point.x >= rect.max.x {
-                return None;
-            }
-            let char_width = ui.painter().layout_no_wrap("0".into(), mono(size), t.counter_text).size().x.max(1.0);
-            let index = ((point.x - text_left) / char_width).floor() as usize;
-            component_ranges(&shown, format).iter().position(|range| range.contains(&index))
-        });
-        app.counter_edit = Some(CounterEdit::new(target, format, value, unit));
+        let was_active = active_here;
+        let unit = was_active
+            .then(|| {
+                response.interact_pointer_pos().and_then(|point| {
+                    if point.x < text_left || point.x >= rect.max.x {
+                        return None;
+                    }
+                    let char_width = ui.painter().layout_no_wrap("0".into(), font, t.counter_text).size().x.max(1.0);
+                    let index = ((point.x - text_left) / char_width).floor() as usize;
+                    component_ranges(&shown, format).iter().position(|range| range.contains(&index))
+                })
+            })
+            .flatten();
+        let edit_value = app.counter_edit.as_ref().filter(|edit| was_active && edit.target == target).map_or(value, |edit| edit.value);
+        app.counter_edit = Some(CounterEdit::new(target, format, edit_value, unit));
         response.request_focus();
     }
 }
@@ -359,25 +388,30 @@ pub(crate) fn handle_counter_keyboard(app: &mut SoundApp, ui: &mut Ui) {
             return;
         }
     }
-    let target = app.counter_edit.as_ref().map(|edit| edit.target).unwrap_or(CounterTarget::Main);
-    if !ui.memory(|memory| memory.has_focus(counter_id(target))) {
-        clear_counter_edit(app, ui);
-        return;
-    }
-    let (digits, left, right, up, down, enter, escape) = ui.input_mut(|input| {
+    let (digits, period, slash, left, right, up, down, enter, escape) = ui.input_mut(|input| {
         let mut digits = String::new();
+        let mut period = false;
+        let mut slash = false;
         input.events.retain(|event| {
             if let egui::Event::Text(text) = event
-                && text.chars().all(|ch| ch.is_ascii_digit())
+                && text.chars().all(|ch| ch.is_ascii_digit() || ch == '.' || ch == '/')
             {
-                digits.push_str(text);
-                false
-            } else {
-                true
+                for ch in text.chars() {
+                    match ch {
+                        '0'..='9' => digits.push(ch),
+                        '.' => period = true,
+                        '/' => slash = true,
+                        _ => {}
+                    }
+                }
+                return false;
             }
+            true
         });
         (
             digits,
+            period,
+            slash,
             input.consume_key(egui::Modifiers::NONE, Key::ArrowLeft),
             input.consume_key(egui::Modifiers::NONE, Key::ArrowRight),
             input.consume_key(egui::Modifiers::NONE, Key::ArrowUp),
@@ -398,7 +432,7 @@ pub(crate) fn handle_counter_keyboard(app: &mut SoundApp, ui: &mut Ui) {
     if left {
         edit.move_unit(-1, &session);
     }
-    if right {
+    if right || period {
         edit.move_unit(1, &session);
     }
     if up {
@@ -408,6 +442,25 @@ pub(crate) fn handle_counter_keyboard(app: &mut SoundApp, ui: &mut Ui) {
         edit.step(&session, -1);
     }
     let (target, value) = (edit.target, edit.value);
+    if slash && target != CounterTarget::Main {
+        apply_counter_value(app, target, value);
+        let next = match target {
+            CounterTarget::Start => CounterTarget::End,
+            CounterTarget::End => CounterTarget::Length,
+            CounterTarget::Length => CounterTarget::Start,
+            CounterTarget::Main => CounterTarget::Main,
+        };
+        let selection = app.engine.session().edit.selection;
+        let value = match next {
+            CounterTarget::Main => app.position(),
+            CounterTarget::Start => selection.start,
+            CounterTarget::End => selection.end,
+            CounterTarget::Length => selection.len(),
+        };
+        app.counter_edit = Some(CounterEdit::new(next, session.edit.main_counter, value, None));
+        ui.memory_mut(|memory| memory.request_focus(counter_id(next)));
+        return;
+    }
     if enter {
         apply_counter_value(app, target, value);
         clear_counter_edit(app, ui);
@@ -418,13 +471,14 @@ fn apply_counter_value(app: &mut SoundApp, target: CounterTarget, value: Samples
     let selection = app.engine.session().edit.selection;
     match target {
         CounterTarget::Main => {
+            let _ = app.run("edit.select", json!({"start": value}));
             let _ = app.run("transport.locate", json!({"at": value}));
         }
         CounterTarget::Start => {
-            let _ = app.run("edit.select", json!({"start": value, "end": selection.end}));
+            let _ = app.run("edit.select", json!({"start": value, "end": selection.end.max(value)}));
         }
         CounterTarget::End => {
-            let _ = app.run("edit.select", json!({"start": selection.start, "end": value}));
+            let _ = app.run("edit.select", json!({"start": selection.start.min(value), "end": value}));
         }
         CounterTarget::Length => {
             let _ = app.run("edit.select", json!({"start": selection.start, "end": selection.start.saturating_add(value)}));
@@ -460,43 +514,31 @@ fn status_indicators(app: &mut SoundApp, ui: &mut Ui, rect: Rect) {
     let green = t.counter_text;
     let red = t.rec;
     let dim = t.counter_off;
-    let specs = [
+    let specs: Vec<_> = [
         (
             "TL",
-            22.0,
+            18.0,
             if timeline_online { green } else { red },
             if timeline_online { "Timeline media is online" } else { "Timeline media needs attention" },
             0u8,
         ),
         (
             "S",
-            20.0,
+            16.0,
             if session_online { green } else { red },
             if session_online { "Session media is online" } else { "Session media needs attention (click for details)" },
             1,
         ),
         (
             "Dly",
-            30.0,
-            if !delay {
-                dim
-            } else if overload {
-                red
-            } else {
-                green
-            },
-            if !delay {
-                "Delay compensation is inactive"
-            } else if overload {
-                "Delay compensation is overloaded"
-            } else {
-                "Delay compensation is active"
-            },
+            24.0,
+            if overload { red } else { green },
+            if overload { "Delay compensation is overloaded" } else { "Delay compensation is active" },
             2,
         ),
         (
             "Bg",
-            25.0,
+            18.0,
             if app.task_error.is_some() {
                 red
             } else if busy {
@@ -513,18 +555,33 @@ fn status_indicators(app: &mut SoundApp, ui: &mut Ui, rect: Rect) {
             },
             3,
         ),
-        ("Frz", 30.0, if frozen { green } else { dim }, "Frozen tracks (Option/Alt-click toggles all eligible tracks)", 4),
-        ("S", 20.0, if solo { t.solo } else { dim }, "Soloed tracks (click to clear)", 5),
-        ("M", 20.0, if mute { t.mute } else { dim }, "Muted tracks", 6),
-    ];
+        ("Frz", 22.0, if frozen { green } else { dim }, "Frozen tracks (Option/Alt-click toggles all eligible tracks)", 4),
+        ("S", 16.0, if solo { t.solo } else { dim }, "Soloed tracks (click to clear)", 5),
+        ("M", 16.0, if mute { t.mute } else { dim }, "Muted tracks", 6),
+    ]
+    .into_iter()
+    .filter(|(_, _, _, _, action)| delay || *action != 2)
+    .collect();
     let total: f32 = specs.iter().map(|(_, width, _, _, _)| *width + 2.0).sum();
     let mut x = rect.max.x - total;
     for (label, width, color, tip, action) in specs {
         let badge = Rect::from_min_size(pos2(x, rect.min.y), vec2(width, rect.height()));
         let response = ui.interact(badge, ui.id().with(("counter_status", action)), Sense::click());
-        ui.painter().rect_filled(badge, 2.0, color.gamma_multiply(if response.hovered() { 1.15 } else { 0.72 }));
-        let foreground = if color == dim { t.counter_text.gamma_multiply(0.55) } else { t.mode_on_text };
-        ui.painter().text(badge.center(), Align2::CENTER_CENTER, label, bold(9.0), foreground);
+        let paint = color.gamma_multiply(if response.hovered() { 1.15 } else { 0.9 });
+        match action {
+            0 => icons::draw(ui.painter(), badge.shrink(2.0), "timeline_status", paint),
+            1 => icons::draw(ui.painter(), badge.shrink(2.0), "session_status", paint),
+            2 => {
+                ui.painter().text(badge.center(), Align2::CENTER_CENTER, label, bold(8.5), paint);
+            }
+            3 => icons::draw(ui.painter(), badge.shrink(2.0), "task_status", paint),
+            4 => icons::draw(ui.painter(), badge.shrink(2.0), "freeze", paint),
+            _ => {
+                ui.painter().rect_filled(badge, 1.0, color.gamma_multiply(if color == dim { 0.45 } else { 0.9 }));
+                let foreground = if color == dim { t.counter_text.gamma_multiply(0.55) } else { t.mode_on_text };
+                ui.painter().text(badge.center(), Align2::CENTER_CENTER, label, bold(9.0), foreground);
+            }
+        };
         let response = response.on_hover_text(tip);
         if response.clicked() {
             match action {
@@ -729,12 +786,42 @@ fn output_meter(app: &mut SoundApp, ui: &mut Ui) {
 mod counter_input_tests {
     use super::*;
     use crate::Services;
-    use egui::{Event, Modifiers, RawInput};
+    use egui::{Event, Modifiers, PointerButton, Pos2, RawInput};
+    use egui_kittest::{Harness, kittest::Queryable};
     use soundcraft_engine::Engine;
     use soundcraft_time::Range;
 
     fn app() -> SoundApp {
         SoundApp::new(Engine::default(), None, Services::default())
+    }
+
+    fn click(harness: &mut Harness<'_, SoundApp>, pos: Pos2) {
+        for pressed in [true, false] {
+            harness.event(Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE });
+            harness.run();
+        }
+    }
+
+    #[test]
+    fn first_counter_click_selects_all_and_second_click_selects_a_unit() {
+        let mut fonts_ready = false;
+        let mut harness = Harness::builder().with_size(vec2(500.0, 100.0)).build_ui_state(
+            move |ui, app| {
+                if !fonts_ready {
+                    crate::fonts::install(ui.ctx());
+                    fonts_ready = true;
+                    return;
+                }
+                counters(app, ui);
+            },
+            app(),
+        );
+        harness.run();
+        let rect = harness.get_by_label("Main Counter").rect();
+        click(&mut harness, pos2(rect.max.x - 4.0, rect.center().y));
+        assert_eq!(harness.state().counter_edit.as_ref().and_then(|edit| edit.unit), None);
+        click(&mut harness, pos2(rect.max.x - 4.0, rect.center().y));
+        assert!(harness.state().counter_edit.as_ref().and_then(|edit| edit.unit).is_some());
     }
 
     #[test]
@@ -782,5 +869,57 @@ mod counter_input_tests {
         let mut output = ctx.run_ui(RawInput::default(), |ui| handle_counter_keyboard(&mut app, ui));
         output.textures_delta.clear();
         assert!(app.counter_edit.is_none());
+    }
+
+    #[test]
+    fn arrows_keep_editing_active_without_transient_widget_focus() {
+        let ctx = egui::Context::default();
+        let mut app = app();
+        app.counter_edit = Some(CounterEdit::new(CounterTarget::Main, TimeFormat::MinSecs, 48_000, Some(1)));
+        let right = Event::Key { key: Key::ArrowRight, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE };
+        let mut output = ctx.run_ui(RawInput { events: vec![right], ..Default::default() }, |ui| handle_counter_keyboard(&mut app, ui));
+        output.textures_delta.clear();
+        assert_eq!(app.counter_edit.as_ref().and_then(|edit| edit.unit), Some(2));
+
+        let down = Event::Key { key: Key::ArrowDown, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE };
+        let mut output = ctx.run_ui(RawInput { events: vec![down], ..Default::default() }, |ui| handle_counter_keyboard(&mut app, ui));
+        output.textures_delta.clear();
+        assert!(app.counter_edit.is_some());
+    }
+
+    #[test]
+    fn main_entry_inside_a_selection_moves_to_a_point() {
+        let mut app = app();
+        app.engine.session_mut().edit.selection = Range::new(100, 300);
+        apply_counter_value(&mut app, CounterTarget::Main, 200);
+        assert_eq!(app.engine.session().edit.selection, Range::point(200));
+        assert_eq!(app.engine.session().edit.playhead, 200);
+    }
+
+    #[test]
+    fn crossing_a_selection_boundary_collapses_it_at_the_edited_value() {
+        let mut app = app();
+        app.engine.session_mut().edit.selection = Range::new(100, 200);
+        apply_counter_value(&mut app, CounterTarget::Start, 250);
+        assert_eq!(app.engine.session().edit.selection, Range::point(250));
+
+        app.engine.session_mut().edit.selection = Range::new(100, 200);
+        apply_counter_value(&mut app, CounterTarget::End, 50);
+        assert_eq!(app.engine.session().edit.selection, Range::point(50));
+    }
+
+    #[test]
+    fn slash_commits_one_selection_field_and_moves_to_the_next() {
+        let ctx = egui::Context::default();
+        let mut app = app();
+        app.run("view.main_counter", json!({"format": "samples"})).unwrap();
+        app.engine.session_mut().edit.selection = Range::new(100, 300);
+        app.counter_edit = Some(CounterEdit::new(CounterTarget::Start, TimeFormat::Samples, 100, None));
+
+        let raw = RawInput { events: vec![Event::Text("200/".into())], ..Default::default() };
+        let mut output = ctx.run_ui(raw, |ui| handle_counter_keyboard(&mut app, ui));
+        output.textures_delta.clear();
+        assert_eq!(app.engine.session().edit.selection, Range::new(200, 300));
+        assert_eq!(app.counter_edit.as_ref().map(|edit| (edit.target, edit.value)), Some((CounterTarget::End, 300)));
     }
 }

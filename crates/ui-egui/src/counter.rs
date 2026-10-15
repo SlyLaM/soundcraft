@@ -65,6 +65,7 @@ impl CounterEdit {
         let shown = self.display(session);
         let mut parts = components(&shown, self.format);
         let unit = self.unit.unwrap_or_else(|| parts.len().saturating_sub(1));
+        self.unit = Some(unit);
         step_components(&mut parts, unit, direction, self.format, self.target, session);
         normalize_component_mins(&mut parts, self.format, self.target);
         normalize_drop_frame_label(&mut parts, self.format, session);

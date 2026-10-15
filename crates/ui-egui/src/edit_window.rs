@@ -912,10 +912,16 @@ fn cursor_value(s: &Session, track: &Track, automation: Option<&AutoParam>, at: 
             let mut peak = 0.0f32;
             for channel in &audio.buffer.channels {
                 let Some(sample) = channel.get(index) else { return "offline".into() };
-                peak = peak.max(sample.abs());
+                if sample.abs() > peak.abs() {
+                    peak = *sample;
+                }
             }
             let peak = peak * clip.gain_at(rel);
-            if peak > 0.0 { format!("{:.1} dBFS", 20.0 * peak.log10()) } else { "−∞ dBFS".into() }
+            match s.bit_depth {
+                soundcraft_model::BitDepthSetting::Int16 => format!("{:.0}", peak * f32::from(i16::MAX)),
+                soundcraft_model::BitDepthSetting::Int24 => format!("{:.0}", peak * 8_388_607.0),
+                soundcraft_model::BitDepthSetting::Float32 => format!("{peak:.6}"),
+            }
         }
         ClipContent::Midi { sequence } => {
             let base = s.tempo.samples_to_ticks(clip.start, s.sample_rate);
