@@ -223,13 +223,13 @@ fn counters(app: &mut SoundApp, ui: &mut Ui) {
         (s.edit.main_counter, s.edit.sub_counter, s.edit.selection)
     };
     let pos = app.position();
-    let (r, _) = ui.allocate_exact_size(vec2(430.0, 64.0), Sense::hover());
+    let (r, _) = ui.allocate_exact_size(vec2(350.0, 64.0), Sense::hover());
     ui.painter().rect(r, CornerRadius::same(4), t.counter_bg, Stroke::new(1.0, t.counter_border), StrokeKind::Inside);
     let main_y = r.min.y + 14.0;
     ui.painter().text(pos2(r.min.x + 10.0, main_y), Align2::LEFT_CENTER, "Main", regular(10.0), t.counter_label);
-    let main_value = Rect::from_min_max(pos2(r.min.x + 45.0, r.min.y + 4.0), pos2(r.min.x + 188.0, r.min.y + 24.0));
+    let main_value = Rect::from_min_max(pos2(r.min.x + 40.0, r.min.y + 4.0), pos2(r.min.x + 158.0, r.min.y + 24.0));
     counter_field(app, ui, main_value, CounterTarget::Main, pos, main_fmt, 21.0, "Main Counter");
-    let main_menu = Rect::from_min_max(pos2(r.min.x + 189.0, r.min.y + 4.0), pos2(r.min.x + 205.0, r.min.y + 24.0));
+    let main_menu = Rect::from_min_max(pos2(r.min.x + 160.0, r.min.y + 4.0), pos2(r.min.x + 176.0, r.min.y + 24.0));
     let main_resp = ui.interact(main_menu, ui.id().with("main_counter_format"), Sense::click());
     icons::draw(ui.painter(), Rect::from_center_size(main_menu.center(), vec2(10.0, 10.0)), "triangle_down", t.text_dim);
     egui::Popup::menu(&main_resp).show(|ui| {
@@ -243,8 +243,8 @@ fn counters(app: &mut SoundApp, ui: &mut Ui) {
     let sub_y = r.min.y + 34.0;
     ui.painter().text(pos2(r.min.x + 10.0, sub_y), Align2::LEFT_CENTER, "Sub", regular(10.0), t.counter_label);
     let sub_text = sub_fmt.map_or_else(|| "—".into(), |format| fmt_pos(app, pos, format));
-    fitted_text(ui, Rect::from_min_max(pos2(r.min.x + 45.0, r.min.y + 25.0), pos2(r.min.x + 188.0, r.min.y + 44.0)), &sub_text, 20.0, t.counter_text);
-    let sub_menu = Rect::from_min_max(pos2(r.min.x + 189.0, r.min.y + 25.0), pos2(r.min.x + 205.0, r.min.y + 44.0));
+    fitted_text(ui, Rect::from_min_max(pos2(r.min.x + 40.0, r.min.y + 25.0), pos2(r.min.x + 158.0, r.min.y + 44.0)), &sub_text, 20.0, t.counter_text);
+    let sub_menu = Rect::from_min_max(pos2(r.min.x + 160.0, r.min.y + 25.0), pos2(r.min.x + 176.0, r.min.y + 44.0));
     let sub_resp = ui.interact(sub_menu, ui.id().with("sub_counter_format"), Sense::click());
     icons::draw(ui.painter(), Rect::from_center_size(sub_menu.center(), vec2(9.0, 9.0)), "triangle_down", t.text_dim);
     egui::Popup::menu(&sub_resp).show(|ui| {
@@ -264,8 +264,8 @@ fn counters(app: &mut SoundApp, ui: &mut Ui) {
     let rows = [("Start", CounterTarget::Start, sel.start), ("End", CounterTarget::End, sel.end), ("Length", CounterTarget::Length, sel.len())];
     for (i, (label, target, value)) in rows.into_iter().enumerate() {
         let y = r.min.y + 9.0 + i as f32 * 13.0;
-        ui.painter().text(pos2(r.min.x + 246.0, y), Align2::RIGHT_CENTER, label, regular(10.0), t.counter_label);
-        let field = Rect::from_min_max(pos2(r.min.x + 251.0, y - 6.0), pos2(r.min.x + 334.0, y + 6.0));
+        ui.painter().text(pos2(r.min.x + 226.0, y), Align2::RIGHT_CENTER, label, regular(10.0), t.counter_label);
+        let field = Rect::from_min_max(pos2(r.min.x + 230.0, y - 6.0), pos2(r.min.x + 344.0, y + 6.0));
         counter_field(app, ui, field, target, value, main_fmt, 10.0, label);
     }
 
@@ -273,22 +273,28 @@ fn counters(app: &mut SoundApp, ui: &mut Ui) {
     ui.painter().line_segment([pos2(r.min.x + 6.0, r.max.y - 21.0), pos2(r.max.x - 6.0, r.max.y - 21.0)], Stroke::new(1.0, t.counter_rule));
     let cursor_at = app.cursor_readout.as_ref().map_or_else(|| "—".into(), |(at, _)| fmt_pos(app, *at, main_fmt));
     let cursor_value = app.cursor_readout.as_ref().map_or("—", |(_, value)| value.as_str());
-    for x in [160.0, 212.0] {
+    for x in [124.0, 202.0] {
         ui.painter().vline(r.min.x + x, r.max.y - 19.0..=r.max.y - 3.0, Stroke::new(1.0, t.counter_rule));
     }
     ui.painter().text(pos2(r.min.x + 10.0, y), Align2::LEFT_CENTER, "Cursor", regular(9.5), t.counter_label);
-    ui.painter().text(pos2(r.min.x + 156.0, y), Align2::RIGHT_CENTER, cursor_at, mono(9.5), t.counter_text);
-    icons::draw(ui.painter(), Rect::from_center_size(pos2(r.min.x + 171.0, y), vec2(14.0, 12.0)), "wave", t.counter_text);
-    ui.painter().text(pos2(r.min.x + 207.0, y), Align2::RIGHT_CENTER, cursor_value, mono(9.5), t.counter_text);
-    status_indicators(app, ui, Rect::from_min_max(pos2(r.min.x + 216.0, r.max.y - 19.0), pos2(r.max.x - 5.0, r.max.y - 3.0)));
+    ui.painter().text(pos2(r.min.x + 120.0, y), Align2::RIGHT_CENTER, cursor_at, mono(9.5), t.counter_text);
+    icons::draw(ui.painter(), Rect::from_center_size(pos2(r.min.x + 135.0, y), vec2(12.0, 11.0)), "wave", t.counter_text);
+    let value_rect = Rect::from_min_max(pos2(r.min.x + 144.0, r.max.y - 19.0), pos2(r.min.x + 198.0, r.max.y - 3.0));
+    let value_font = fitted_mono(ui, cursor_value, 9.5, value_rect.width());
+    ui.painter().text(pos2(value_rect.max.x, y), Align2::RIGHT_CENTER, cursor_value, value_font, t.counter_text);
+    status_indicators(app, ui, Rect::from_min_max(pos2(r.min.x + 204.0, r.max.y - 19.0), pos2(r.max.x - 5.0, r.max.y - 3.0)));
 }
 
 fn fitted_text(ui: &Ui, rect: Rect, text: &str, maximum_size: f32, color: Color32) {
+    ui.painter().text(pos2(rect.max.x, rect.center().y), Align2::RIGHT_CENTER, text, fitted_mono(ui, text, maximum_size, rect.width()), color);
+}
+
+fn fitted_mono(ui: &Ui, text: &str, maximum_size: f32, width: f32) -> egui::FontId {
     let mut size = maximum_size;
-    while size > 12.0 && ui.painter().layout_no_wrap(text.into(), mono(size), color).size().x > rect.width() {
-        size -= 1.0;
+    while size > 8.0 && ui.painter().layout_no_wrap(text.into(), mono(size), Color32::WHITE).size().x > width {
+        size -= 0.5;
     }
-    ui.painter().text(pos2(rect.max.x, rect.center().y), Align2::RIGHT_CENTER, text, mono(size), color);
+    mono(size)
 }
 
 fn counter_id(target: CounterTarget) -> egui::Id {
@@ -388,22 +394,32 @@ pub(crate) fn handle_counter_keyboard(app: &mut SoundApp, ui: &mut Ui) {
             return;
         }
     }
-    let (digits, period, slash, left, right, up, down, enter, escape) = ui.input_mut(|input| {
+    let (digits, period, slash, calculation, left, right, up, down, enter, escape) = ui.input_mut(|input| {
         let mut digits = String::new();
         let mut period = false;
         let mut slash = false;
+        let mut calculation = None;
         input.events.retain(|event| {
             if let egui::Event::Text(text) = event
-                && text.chars().all(|ch| ch.is_ascii_digit() || ch == '.' || ch == '/')
+                && text.chars().all(|ch| ch.is_ascii_digit() || matches!(ch, '.' | '/' | '+' | '-' | '−'))
             {
                 for ch in text.chars() {
                     match ch {
                         '0'..='9' => digits.push(ch),
                         '.' => period = true,
                         '/' => slash = true,
+                        '+' => calculation = Some(1),
+                        '-' | '−' => calculation = Some(-1),
                         _ => {}
                     }
                 }
+                return false;
+            }
+            if let egui::Event::Key { key: Key::Plus | Key::Minus, pressed: true, modifiers, .. } = event
+                && !modifiers.alt
+                && !modifiers.shift
+            {
+                calculation = Some(if matches!(event, egui::Event::Key { key: Key::Plus, .. }) { 1 } else { -1 });
                 return false;
             }
             true
@@ -412,6 +428,7 @@ pub(crate) fn handle_counter_keyboard(app: &mut SoundApp, ui: &mut Ui) {
             digits,
             period,
             slash,
+            calculation,
             input.consume_key(egui::Modifiers::NONE, Key::ArrowLeft),
             input.consume_key(egui::Modifiers::NONE, Key::ArrowRight),
             input.consume_key(egui::Modifiers::NONE, Key::ArrowUp),
@@ -425,6 +442,9 @@ pub(crate) fn handle_counter_keyboard(app: &mut SoundApp, ui: &mut Ui) {
     if escape {
         clear_counter_edit(app, ui);
         return;
+    }
+    if let Some(direction) = calculation {
+        edit.begin_calculation(direction);
     }
     for digit in digits.chars() {
         edit.digit(&session, digit);
@@ -462,6 +482,9 @@ pub(crate) fn handle_counter_keyboard(app: &mut SoundApp, ui: &mut Ui) {
         return;
     }
     if enter {
+        if edit.finish_calculation() {
+            return;
+        }
         apply_counter_value(app, target, value);
         clear_counter_edit(app, ui);
     }
@@ -517,28 +540,28 @@ fn status_indicators(app: &mut SoundApp, ui: &mut Ui, rect: Rect) {
     let specs: Vec<_> = [
         (
             "TL",
-            18.0,
+            16.0,
             if timeline_online { green } else { red },
             if timeline_online { "Timeline media is online" } else { "Timeline media needs attention" },
             0u8,
         ),
         (
             "S",
-            16.0,
+            14.0,
             if session_online { green } else { red },
             if session_online { "Session media is online" } else { "Session media needs attention (click for details)" },
             1,
         ),
         (
             "Dly",
-            24.0,
+            22.0,
             if overload { red } else { green },
             if overload { "Delay compensation is overloaded" } else { "Delay compensation is active" },
             2,
         ),
         (
             "Bg",
-            18.0,
+            16.0,
             if app.task_error.is_some() {
                 red
             } else if busy {
@@ -555,9 +578,9 @@ fn status_indicators(app: &mut SoundApp, ui: &mut Ui, rect: Rect) {
             },
             3,
         ),
-        ("Frz", 22.0, if frozen { green } else { dim }, "Frozen tracks (Option/Alt-click toggles all eligible tracks)", 4),
-        ("S", 16.0, if solo { t.solo } else { dim }, "Soloed tracks (click to clear)", 5),
-        ("M", 16.0, if mute { t.mute } else { dim }, "Muted tracks", 6),
+        ("Frz", 18.0, if frozen { green } else { dim }, "Frozen tracks (Option/Alt-click toggles all eligible tracks)", 4),
+        ("S", 14.0, if solo { t.solo } else { dim }, "Soloed tracks (click to clear)", 5),
+        ("M", 14.0, if mute { t.mute } else { dim }, "Muted tracks", 6),
     ]
     .into_iter()
     .filter(|(_, _, _, _, action)| delay || *action != 2)
@@ -921,5 +944,27 @@ mod counter_input_tests {
         output.textures_delta.clear();
         assert_eq!(app.engine.session().edit.selection, Range::new(200, 300));
         assert_eq!(app.counter_edit.as_ref().map(|edit| (edit.target, edit.value)), Some((CounterTarget::End, 300)));
+    }
+
+    #[test]
+    fn calculator_entry_previews_then_applies_on_the_second_enter() {
+        let ctx = egui::Context::default();
+        let mut app = app();
+        app.run("view.main_counter", json!({"format": "samples"})).unwrap();
+        app.engine.session_mut().edit.selection = Range::new(1_000, 3_000);
+        app.counter_edit = Some(CounterEdit::new(CounterTarget::Start, TimeFormat::Samples, 1_000, None));
+
+        let raw = RawInput { events: vec![Event::Text("+250".into())], ..Default::default() };
+        let mut output = ctx.run_ui(raw, |ui| handle_counter_keyboard(&mut app, ui));
+        output.textures_delta.clear();
+        assert_eq!(app.counter_edit.as_ref().map(|edit| edit.value), Some(1_250));
+        assert_eq!(app.engine.session().edit.selection, Range::new(1_000, 3_000));
+
+        for applied in [false, true] {
+            let enter = Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE };
+            let mut output = ctx.run_ui(RawInput { events: vec![enter], ..Default::default() }, |ui| handle_counter_keyboard(&mut app, ui));
+            output.textures_delta.clear();
+            assert_eq!(app.engine.session().edit.selection.start == 1_250, applied);
+        }
     }
 }

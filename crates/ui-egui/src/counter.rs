@@ -18,11 +18,12 @@ pub(crate) struct CounterEdit {
     pub unit: Option<usize>,
     pub value: Samples,
     typed: String,
+    calculation: Option<(i64, Samples)>,
 }
 
 impl CounterEdit {
     pub fn new(target: CounterTarget, format: TimeFormat, value: Samples, unit: Option<usize>) -> Self {
-        CounterEdit { target, format, unit, value, typed: String::new() }
+        CounterEdit { target, format, unit, value, typed: String::new(), calculation: None }
     }
 
     pub fn display(&self, session: &Session) -> String {
@@ -40,28 +41,59 @@ impl CounterEdit {
         }
         self.typed.push(digit);
         let count = component_ranges(&self.display(session), self.format).len().max(1);
+        let relative = self.calculation;
         let mut parts = if let Some(unit) = self.unit {
-            let mut parts = components(&self.display(session), self.format);
-            parts.resize(count, 0);
-            if self.typed.len() == 1 {
-                for part in parts.iter_mut().skip(unit) {
-                    *part = 0;
+            if relative.is_some() {
+                let mut parts = vec![0; count];
+                if let Some(part) = parts.get_mut(unit) {
+                    *part = digits_value(&self.typed);
                 }
+                parts
+            } else {
+                let mut parts = components(&self.display(session), self.format);
+                parts.resize(count, 0);
+                if self.typed.len() == 1 {
+                    for part in parts.iter_mut().skip(unit) {
+                        *part = 0;
+                    }
+                }
+                if let Some(part) = parts.get_mut(unit) {
+                    *part = digits_value(&self.typed);
+                }
+                parts
             }
-            if let Some(part) = parts.get_mut(unit) {
-                *part = digits_value(&self.typed);
-            }
-            parts
         } else {
             right_aligned_components(&self.typed, &widths, count)
         };
-        normalize_component_mins(&mut parts, self.format, self.target);
-        normalize_drop_frame_label(&mut parts, self.format, session);
-        self.value = compose(session, self.target, self.format, &parts).clamp(0, MAX_POSITION);
+        normalize_component_mins(&mut parts, self.format, if relative.is_some() { CounterTarget::Length } else { self.target });
+        if relative.is_none() {
+            normalize_drop_frame_label(&mut parts, self.format, session);
+        }
+        self.value = if let Some((direction, base)) = relative {
+            let amount = compose(session, CounterTarget::Length, self.format, &parts);
+            base.saturating_add(direction.saturating_mul(amount)).clamp(0, MAX_POSITION)
+        } else {
+            compose(session, self.target, self.format, &parts).clamp(0, MAX_POSITION)
+        };
+    }
+
+    pub fn begin_calculation(&mut self, direction: i64) {
+        self.typed.clear();
+        self.calculation = Some((direction.signum(), self.value));
+    }
+
+    /// Accept the previewed result while leaving the counter active for the final Enter.
+    pub fn finish_calculation(&mut self) -> bool {
+        let active = self.calculation.take().is_some();
+        if active {
+            self.typed.clear();
+        }
+        active
     }
 
     pub fn step(&mut self, session: &Session, direction: i64) {
         self.typed.clear();
+        self.calculation = None;
         let shown = self.display(session);
         let mut parts = components(&shown, self.format);
         let unit = self.unit.unwrap_or_else(|| parts.len().saturating_sub(1));
@@ -74,6 +106,7 @@ impl CounterEdit {
 
     pub fn move_unit(&mut self, direction: i32, session: &Session) {
         self.typed.clear();
+        self.calculation = None;
         let count = component_ranges(&self.display(session), self.format).len().max(1);
         let current = self.unit.unwrap_or(count.saturating_sub(1));
         self.unit = Some(if direction < 0 { current.saturating_sub(1) } else { current.saturating_add(1).min(count.saturating_sub(1)) });
@@ -335,5 +368,26 @@ mod tests {
         }
         assert_eq!(edit.value, 24_000);
         assert_eq!(edit.display(&session), "0| 1| 000");
+    }
+
+    #[test]
+    fn calculator_entry_adds_and_subtracts_a_time_value() {
+        let session = Session::default();
+        let ten_seconds = session.parse_position("00:10.000", TimeFormat::MinSecs).unwrap();
+        let mut edit = CounterEdit::new(CounterTarget::Start, TimeFormat::MinSecs, ten_seconds, None);
+
+        edit.begin_calculation(1);
+        for digit in "1500".chars() {
+            edit.digit(&session, digit);
+        }
+        assert_eq!(edit.display(&session), "0:11.500");
+        assert!(edit.finish_calculation());
+        assert!(!edit.finish_calculation());
+
+        edit.begin_calculation(-1);
+        for digit in "2500".chars() {
+            edit.digit(&session, digit);
+        }
+        assert_eq!(edit.display(&session), "0:09.000");
     }
 }

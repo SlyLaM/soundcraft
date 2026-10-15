@@ -899,30 +899,19 @@ fn cursor_value(s: &Session, track: &Track, automation: Option<&AutoParam>, at: 
             _ => format!("{value:.3}"),
         };
     }
+    if track.kind == TrackKind::Audio {
+        let body_top = lane_rect.min.y + 1.0 + clip_name_height(s, lane_rect);
+        let body_bottom = lane_rect.max.y - 1.0;
+        let amplitude = cursor_audio_amplitude(pointer_y, body_top, body_bottom, track.channels(), s.edit.zoom.waveform_zoom);
+        return match s.bit_depth {
+            soundcraft_model::BitDepthSetting::Int16 => format!("{:.0}", amplitude * f32::from(i16::MAX)),
+            soundcraft_model::BitDepthSetting::Int24 => format!("{:.0}", amplitude * 8_388_607.0),
+            soundcraft_model::BitDepthSetting::Float32 => format!("{amplitude:.6}"),
+        };
+    }
     let Some(clip) = track.clips().iter().rev().find(|clip| clip.range().contains(at)) else { return "—".into() };
     match &clip.content {
-        ClipContent::Audio { source, offset } => {
-            let rel = at.saturating_sub(clip.start);
-            let source_at = *offset as f64 + rel as f64 / clip.stretch.max(f64::EPSILON);
-            let Some(index) = usize::try_from(source_at.max(0.0) as i64).ok() else { return "offline".into() };
-            let Some(audio) = s.pool.get(*source) else { return "offline".into() };
-            if audio.buffer.channels.is_empty() {
-                return "offline".into();
-            }
-            let mut peak = 0.0f32;
-            for channel in &audio.buffer.channels {
-                let Some(sample) = channel.get(index) else { return "offline".into() };
-                if sample.abs() > peak.abs() {
-                    peak = *sample;
-                }
-            }
-            let peak = peak * clip.gain_at(rel);
-            match s.bit_depth {
-                soundcraft_model::BitDepthSetting::Int16 => format!("{:.0}", peak * f32::from(i16::MAX)),
-                soundcraft_model::BitDepthSetting::Int24 => format!("{:.0}", peak * 8_388_607.0),
-                soundcraft_model::BitDepthSetting::Float32 => format!("{peak:.6}"),
-            }
-        }
+        ClipContent::Audio { .. } => "—".into(),
         ClipContent::Midi { sequence } => {
             let base = s.tempo.samples_to_ticks(clip.start, s.sample_rate);
             let tick = s.tempo.samples_to_ticks(at, s.sample_rate).saturating_sub(base);
@@ -944,6 +933,14 @@ fn cursor_value(s: &Session, track: &Track, automation: Option<&AutoParam>, at: 
         }
         ClipContent::Video { .. } => "picture".into(),
     }
+}
+
+fn cursor_audio_amplitude(pointer_y: f32, body_top: f32, body_bottom: f32, channels: usize, waveform_zoom: f32) -> f32 {
+    let channels = channels.max(1);
+    let channel_height = (body_bottom - body_top).max(1.0) / channels as f32;
+    let channel = ((pointer_y - body_top) / channel_height).floor().clamp(0.0, channels.saturating_sub(1) as f32);
+    let center = body_top + (channel + 0.5) * channel_height;
+    ((center - pointer_y) / (channel_height * 0.46) / waveform_zoom.max(f32::EPSILON)).clamp(-1.0, 1.0)
 }
 
 fn automation_base(track: &Track, param: &AutoParam) -> f32 {
@@ -2893,6 +2890,15 @@ fn overlay(app: &mut SoundApp, ui: &mut Ui, tl: Rect, area: Rect) {
 mod tests {
     use super::*;
     use egui_kittest::Harness;
+
+    #[test]
+    fn audio_cursor_value_follows_the_vertical_position_in_each_channel() {
+        assert_eq!(cursor_audio_amplitude(35.0, 10.0, 110.0, 2, 1.0), 0.0);
+        assert_eq!(cursor_audio_amplitude(85.0, 10.0, 110.0, 2, 1.0), 0.0);
+        assert_eq!(cursor_audio_amplitude(12.0, 10.0, 110.0, 2, 1.0), 1.0);
+        assert_eq!(cursor_audio_amplitude(58.0, 10.0, 110.0, 2, 1.0), -1.0);
+        assert!((cursor_audio_amplitude(23.5, 10.0, 110.0, 2, 2.0) - 0.25).abs() < f32::EPSILON);
+    }
 
     #[test]
     fn follow_jumps_to_offscreen_playhead_while_playing() {
