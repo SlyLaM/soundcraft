@@ -65,6 +65,9 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(noundo "view.main_counter", "Main Counter", ["View", "Main Counter"], None, "{format: bars_beats|min_secs|timecode|feet_frames|samples}", always, |e, p| {
             let f = str_param(p, "format").and_then(TimeFormat::from_id).ok_or_else(|| bad("view.main_counter", "unknown format"))?;
             let edit = &mut e.session_mut().edit;
+            if edit.sub_counter == Some(f) {
+                edit.sub_counter = Some(edit.main_counter);
+            }
             edit.main_counter = f;
             let scale = grid_scale(f);
             if edit.grid_follow_main && edit.grid.scale() != scale {
@@ -80,7 +83,11 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         cmd!(noundo "view.sub_counter", "Sub Counter", [], None, "{format?: … | null}", always, |e, p| {
             let f = str_param(p, "format").and_then(TimeFormat::from_id);
-            e.session_mut().edit.sub_counter = f;
+            let edit = &mut e.session_mut().edit;
+            if f == Some(edit.main_counter) {
+                edit.main_counter = edit.sub_counter.unwrap_or_else(|| TimeFormat::ALL.into_iter().find(|candidate| *candidate != edit.main_counter).unwrap_or(TimeFormat::MinSecs));
+            }
+            edit.sub_counter = f;
             Ok(json!({"format": f}))
         }),
         cmd!(noundo "view.grid", "Grid Value", [], Some("Shift+=/-"), "{value?, step?, format?: bars_beats|min_secs|timecode|feet_frames|samples|clips_markers, follow_main?: bool, lines?: bool}", always, |e, p| {
@@ -248,6 +255,19 @@ mod tests {
         assert_eq!(grid_param(&json!({"v": {"timecode": "quarter_frame"}}), "v"), Some(GridValue::Timecode(TimecodeValue::QuarterFrame)));
         assert_eq!(grid_param(&json!({"v": {"feet_frames": "foot"}}), "v"), Some(GridValue::FeetFrames(FeetFramesValue::Foot)));
         assert_eq!(grid_param(&json!({"v": "nonsense"}), "v"), None);
+    }
+
+    #[test]
+    fn choosing_a_counter_format_already_in_use_swaps_the_two_formats() {
+        let mut e = Engine::default();
+        e.execute("view.main_counter", &json!({"format": "timecode"})).unwrap();
+        e.execute("view.sub_counter", &json!({"format": "samples"})).unwrap();
+        e.execute("view.main_counter", &json!({"format": "samples"})).unwrap();
+        assert_eq!(e.session().edit.main_counter, TimeFormat::Samples);
+        assert_eq!(e.session().edit.sub_counter, Some(TimeFormat::Timecode));
+        e.execute("view.sub_counter", &json!({"format": "samples"})).unwrap();
+        assert_eq!(e.session().edit.main_counter, TimeFormat::Timecode);
+        assert_eq!(e.session().edit.sub_counter, Some(TimeFormat::Samples));
     }
 
     fn view(e: &Engine) -> (f64, Samples) {
