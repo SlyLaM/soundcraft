@@ -2126,7 +2126,8 @@ fn lane_interaction(app: &mut SoundApp, ui: &mut Ui, track: &Track, lane: Rect, 
                 hit.is_none().then_some(Gesture::MidiClip { track: track.id, from: at_origin, to: at_origin })
             }
             Tool::Pencil => Some(Gesture::Pencil { track: track.id, points: Vec::new() }),
-            Tool::Zoom => (!mods.alt).then_some(Gesture::ZoomBox { start: origin.x, current: origin.x, lane_y: [lane.min.y, lane.max.y] }),
+            Tool::Zoom if mods.alt => Some(Gesture::ZoomOut),
+            Tool::Zoom => Some(Gesture::ZoomBox { start: origin.x, current: origin.x, lane_y: [lane.min.y, lane.max.y] }),
         };
     }
     if let Some(Gesture::ClipGain { clip, track: t, pos, anchor, fine, fader_bottom }) = &mut app.gesture
@@ -2255,7 +2256,7 @@ fn drive_drag(app: &mut SoundApp, ctx: &egui::Context) {
     if app.gesture.is_none() || matches!(app.gesture, Some(Gesture::Fader { .. })) {
         return;
     }
-    if matches!(app.gesture, Some(Gesture::ZoomBox { .. }))
+    if matches!(app.gesture, Some(Gesture::ZoomBox { .. } | Gesture::ZoomOut))
         && (ctx.input(|i| i.key_pressed(egui::Key::Escape)) || app.engine.session().edit.tool != Tool::Zoom)
     {
         app.gesture = None;
@@ -2405,6 +2406,10 @@ fn finish_drag(app: &mut SoundApp, s: &Session, tl: Rect, p: Option<Pos2>) {
                 let _ = app.run("view.scroll", json!({"to": a}));
                 let _ = app.run("edit.zoom_complete", json!({}));
             }
+        }
+        Some(Gesture::ZoomOut) => {
+            let _ = app.run("view.zoom_out", json!({}));
+            let _ = app.run("edit.zoom_complete", json!({}));
         }
         _ => {}
     }
@@ -2911,7 +2916,7 @@ mod tests {
     }
 
     #[test]
-    fn alt_click_zooms_out_but_alt_drag_does_nothing() {
+    fn alt_click_and_alt_drag_zoom_out_without_drawing_a_box() {
         let alt = egui::Modifiers::ALT;
         let shift_alt = egui::Modifiers { alt: true, shift: true, ..egui::Modifiers::NONE };
 
@@ -2927,10 +2932,16 @@ mod tests {
             let to = from + vec2(180.0, 30.0);
             let before = dragged.state().engine.session().edit.zoom;
             dragged.event(egui::Event::ModifiersChanged(mods));
-            drag(&mut dragged, from, to);
+            dragged.hover_at(from);
+            dragged.drag_at(from);
+            dragged.hover_at(to);
+            dragged.step();
+            assert!(matches!(dragged.state().gesture, Some(Gesture::ZoomOut)));
+            dragged.drop_at(to);
+            dragged.step();
             dragged.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
             assert!(dragged.state().gesture.is_none());
-            assert_eq!(dragged.state().engine.session().edit.zoom, before);
+            assert!(dragged.state().engine.session().edit.zoom.samples_per_px > before.samples_per_px);
         }
     }
 

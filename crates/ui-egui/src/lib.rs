@@ -242,6 +242,7 @@ pub enum Gesture {
     Pencil { track: TrackId, points: Vec<(Samples, f32)> },
     MidiClip { track: TrackId, from: Samples, to: Samples },
     ZoomBox { start: f32, current: f32, lane_y: [f32; 2] },
+    ZoomOut,
 }
 
 pub struct SoundApp {
