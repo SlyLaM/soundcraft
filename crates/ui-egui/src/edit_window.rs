@@ -2126,7 +2126,7 @@ fn lane_interaction(app: &mut SoundApp, ui: &mut Ui, track: &Track, lane: Rect, 
                 hit.is_none().then_some(Gesture::MidiClip { track: track.id, from: at_origin, to: at_origin })
             }
             Tool::Pencil => Some(Gesture::Pencil { track: track.id, points: Vec::new() }),
-            Tool::Zoom => Some(Gesture::ZoomBox { start: origin, current: origin }),
+            Tool::Zoom => Some(Gesture::ZoomBox { start: origin.x, current: origin.x, lane_y: [lane.min.y, lane.max.y] }),
         };
     }
     if let Some(Gesture::ClipGain { clip, track: t, pos, anchor, fine, fader_bottom }) = &mut app.gesture
@@ -2334,7 +2334,7 @@ fn drive_drag(app: &mut SoundApp, ctx: &egui::Context) {
             }
         }
         Some(Gesture::ZoomBox { current, .. }) => {
-            *current = inside;
+            *current = inside.x;
             ctx.request_repaint();
         }
         _ => {}
@@ -2397,8 +2397,8 @@ fn finish_drag(app: &mut SoundApp, s: &Session, tl: Rect, p: Option<Pos2>) {
         }
         Some(Gesture::ZoomBox { start, .. }) => {
             let Some(p) = p else { return };
-            let a = sample_at(s, tl, start.x.min(p.x));
-            let b = sample_at(s, tl, start.x.max(p.x));
+            let a = sample_at(s, tl, start.min(p.x));
+            let b = sample_at(s, tl, start.max(p.x));
             if b > a {
                 let spp = ((b - a) as f64 / f64::from(tl.width())).max(0.25);
                 let _ = app.run("view.zoom_set", json!({"samples_per_px": spp}));
@@ -2711,10 +2711,9 @@ fn overlay(app: &mut SoundApp, ui: &mut Ui, tl: Rect, area: Rect) {
         let x = x_of(s, tl, *to);
         painter.line_segment([pos2(x, r[1]), pos2(x, r[3])], Stroke::new(2.0, Color32::WHITE));
     }
-    if let Some(Gesture::ZoomBox { start, current }) = &app.gesture {
-        let start = pos2(start.x.clamp(tl.min.x, tl.max.x), start.y.clamp(tl.min.y, tl.max.y));
-        let current = pos2(current.x.clamp(tl.min.x, tl.max.x), current.y.clamp(tl.min.y, tl.max.y));
-        let box_rect = Rect::from_two_pos(start, current);
+    if let Some(Gesture::ZoomBox { start, current, lane_y }) = &app.gesture {
+        let (x0, x1) = (start.min(*current).clamp(tl.min.x, tl.max.x), start.max(*current).clamp(tl.min.x, tl.max.x));
+        let box_rect = Rect::from_min_max(pos2(x0, lane_y[0].max(tl.min.y)), pos2(x1, lane_y[1].min(tl.max.y)));
         let zoom_painter = painter.with_clip_rect(tl);
         zoom_painter.rect_filled(box_rect, 0.0, Color32::from_white_alpha(16));
         zoom_painter.rect_stroke(box_rect, 0.0, Stroke::new(1.0, Color32::WHITE), StrokeKind::Inside);
@@ -2937,8 +2936,8 @@ mod tests {
             zoom_rects.iter().any(|rect| {
                 (rect.min.x - from.x).abs() < 0.1
                     && (rect.max.x - to.x).abs() < 0.1
-                    && (rect.min.y - from.y).abs() < 0.1
-                    && (rect.max.y - to.y).abs() < 0.1
+                    && (rect.min.y - row(&h, 0).min.y).abs() < 0.1
+                    && (rect.max.y - row(&h, 0).max.y).abs() < 0.1
             }),
             "zoom rectangles: {zoom_rects:?}, expected {from:?} to {to:?}"
         );

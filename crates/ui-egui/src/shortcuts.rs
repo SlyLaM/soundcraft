@@ -54,6 +54,10 @@ fn search_chord(m: Modifiers, mac: bool) -> bool {
     mac && m.command && m.ctrl
 }
 
+fn zoom_tool_chord(key: Key, m: Modifiers, mac: bool) -> bool {
+    key == Key::Num1 && mods_match(Modifiers::COMMAND, m, mac)
+}
+
 pub fn handle(app: &mut SoundApp, ctx: &egui::Context) {
     // Cmd+= and Cmd+0 are Mix/Edit and Quantize to Grid, not egui's built-in interface zoom.
     ctx.options_mut(|o| o.zoom_with_keyboard = false);
@@ -160,6 +164,10 @@ fn fixed(app: &mut SoundApp, key: Key, m: Modifiers, mac: bool) -> bool {
                 _ => "pencil",
             };
             let _ = app.run("edit.tool", json!({"tool": tool}));
+            true
+        }
+        Key::Num1 if zoom_tool_chord(key, m, mac) => {
+            let _ = app.run("edit.tool", json!({"tool": "zoom"}));
             true
         }
         Key::Plus | Key::Minus if !m.command && app.ui.window == MainWindow::Edit => {
@@ -416,7 +424,7 @@ mod label_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::{command_for, mods_match, parse, search_chord};
+    use super::{command_for, mods_match, parse, search_chord, zoom_tool_chord};
     use egui::{Key, Modifiers};
 
     /// Ctrl held on Windows or Linux, as egui reports it.
@@ -446,6 +454,14 @@ mod tests {
         assert!(!mods_match(want("Cmd+X"), Modifiers { ctrl: true, ..MAC_CMD }, true), "Cmd+Ctrl+X is not Cut");
         assert!(!search_chord(MAC_CMD, true));
         assert!(search_chord(Modifiers { ctrl: true, ..MAC_CMD }, true));
+    }
+
+    #[test]
+    fn platform_command_one_selects_the_zoom_tool() {
+        assert!(zoom_tool_chord(Key::Num1, MAC_CMD, true));
+        assert!(zoom_tool_chord(Key::Num1, PC_CTRL, false));
+        assert!(!zoom_tool_chord(Key::Num1, Modifiers::CTRL, true));
+        assert!(!zoom_tool_chord(Key::Num2, MAC_CMD, true));
     }
 
     #[test]
