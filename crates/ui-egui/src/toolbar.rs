@@ -175,14 +175,20 @@ fn tools(app: &mut SoundApp, ui: &mut Ui) {
                     }
                 }
             });
-            // Smart tool bracket above Trim/Selector/Grabber.
+            // The Smart Tool target spans the header shared by Trim/Selector/Grabber. Its clear
+            // hit area avoids requiring a precise click on the thin visual outline.
             let rr = row.response.rect;
             let bx0 = rr.min.x + 76.0;
             let bx1 = bx0 + 38.0 * 3.0 - 2.0;
-            let bracket = Rect::from_min_max(pos2(bx0 - 2.0, r.min.y + 1.0), pos2(bx1 + 2.0, r.min.y + 5.0));
-            let resp = ui.interact(bracket.expand2(vec2(0.0, 2.0)), ui.id().with("smart"), Sense::click());
-            ui.painter().rect_filled(bracket, 1.0, if cur == Tool::Smart { t.accent } else { t.tool_bracket_off });
-            if resp.on_hover_text("Smart Tool (F6+F7 / F7+F8)").clicked() {
+            let bracket = Rect::from_min_max(pos2(bx0 - 2.0, r.min.y + 1.0), pos2(bx1 + 2.0, rr.min.y + 8.0));
+            let resp = ui.interact(bracket, ui.id().with("smart"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+            let color = if cur == Tool::Smart { t.accent } else { t.tool_bracket_off };
+            let stroke = Stroke::new(2.0, color);
+            ui.painter().line_segment([bracket.left_top(), bracket.right_top()], stroke);
+            ui.painter().line_segment([bracket.left_top(), bracket.left_bottom()], stroke);
+            ui.painter().line_segment([bracket.right_top(), bracket.right_bottom()], stroke);
+            resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, cur == Tool::Smart, "Smart Tool"));
+            if resp.on_hover_text("Smart Tool (hold any two of F6, F7 and F8)").clicked() {
                 let _ = app.run("edit.tool", json!({"tool": "smart"}));
             }
             ui.horizontal(|ui| {
