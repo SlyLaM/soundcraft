@@ -6,7 +6,7 @@ use crate::{SoundApp, icons};
 use egui::{Align2, Color32, CornerRadius, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use serde_json::json;
 use soundcraft_engine::edit::{SHUFFLE_LOCK, SNAP_TO_GRID};
-use soundcraft_model::{EditMode, Tool};
+use soundcraft_model::{EditMode, Tool, ZoomMode};
 use soundcraft_time::{TimeFormat, format_length};
 
 pub const HEIGHT: f32 = 78.0;
@@ -152,7 +152,7 @@ fn zoom_group(app: &mut SoundApp, ui: &mut Ui) {
 fn tools(app: &mut SoundApp, ui: &mut Ui) {
     let t = Tokens::current();
     let cur = app.engine.session().edit.tool;
-    group(ui, 268.0 + 38.0, 52.0, |ui, r| {
+    group(ui, 268.0 + 38.0 + 8.0, 52.0, |ui, r| {
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing = vec2(2.0, 3.0);
             let row = ui.horizontal(|ui| {
@@ -170,14 +170,16 @@ fn tools(app: &mut SoundApp, ui: &mut Ui) {
                 ] {
                     let smart_member = cur == Tool::Smart && matches!(tool, Tool::Trim | Tool::Selector | Tool::Grabber);
                     let tip = format!("{}{}", tool.label(), tool.fkey().map(|k| format!(" ({k})")).unwrap_or_default());
-                    if icon_button(ui, vec2(36.0, 26.0), icon, cur == tool || smart_member, &tip).clicked() {
+                    if tool == Tool::Zoom {
+                        zoom_tool_selector(app, ui, cur == Tool::Zoom, &tip);
+                    } else if icon_button(ui, vec2(36.0, 26.0), icon, cur == tool || smart_member, &tip).clicked() {
                         let _ = app.run("edit.tool", json!({"tool": tool.id()}));
                     }
                 }
             });
             // Smart tool bracket above Trim/Selector/Grabber.
             let rr = row.response.rect;
-            let bx0 = rr.min.x + 76.0;
+            let bx0 = rr.min.x + 84.0;
             let bx1 = bx0 + 38.0 * 3.0 - 2.0;
             let bracket = Rect::from_min_max(pos2(bx0 - 2.0, r.min.y + 1.0), pos2(bx1 + 2.0, r.min.y + 5.0));
             let resp = ui.interact(bracket.expand2(vec2(0.0, 2.0)), ui.id().with("smart"), Sense::click());
@@ -206,6 +208,26 @@ fn tools(app: &mut SoundApp, ui: &mut Ui) {
                     let _ = app.run("options.keyboard_focus", json!({}));
                 }
             });
+        });
+    });
+}
+
+fn zoom_tool_selector(app: &mut SoundApp, ui: &mut Ui, selected: bool, tip: &str) {
+    let mode = app.engine.session().edit.zoom_mode;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        if icon_button(ui, vec2(32.0, 26.0), "zoom", selected, tip).clicked() {
+            let _ = app.run("edit.tool", json!({"tool": Tool::Zoom.id()}));
+        }
+        let menu = icon_button(ui, vec2(12.0, 26.0), "triangle_down", selected, "Zoom tool mode");
+        egui::Popup::menu(&menu).show(|ui| {
+            for choice in [ZoomMode::Normal, ZoomMode::Single] {
+                if ui.selectable_label(mode == choice, choice.label()).clicked() {
+                    let _ = app.run("edit.zoom_mode", json!({"mode": choice.id()}));
+                    let _ = app.run("edit.tool", json!({"tool": Tool::Zoom.id()}));
+                    ui.close();
+                }
+            }
         });
     });
 }
