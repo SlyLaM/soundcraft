@@ -195,9 +195,7 @@ fn tools(app: &mut SoundApp, ui: &mut Ui) {
                 .on_hover_text(tip);
             let color = if cur == Tool::Smart { t.accent } else { t.tool_bracket_off };
             let stroke = Stroke::new(4.0, color);
-            ui.painter().line_segment([outline.left_top(), outline.right_top()], stroke);
-            ui.painter().line_segment([outline.left_top(), outline.left_bottom()], stroke);
-            ui.painter().line_segment([outline.right_top(), outline.right_bottom()], stroke);
+            ui.painter().add(egui::Shape::line(vec![outline.left_bottom(), outline.left_top(), outline.right_top(), outline.right_bottom()], stroke));
             top.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, cur == Tool::Smart, "Smart Tool"));
             if top.clicked() || left.clicked() || right.clicked() {
                 let _ = app.run("edit.tool", json!({"tool": "smart"}));
