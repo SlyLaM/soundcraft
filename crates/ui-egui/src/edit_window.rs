@@ -2126,7 +2126,7 @@ fn lane_interaction(app: &mut SoundApp, ui: &mut Ui, track: &Track, lane: Rect, 
                 hit.is_none().then_some(Gesture::MidiClip { track: track.id, from: at_origin, to: at_origin })
             }
             Tool::Pencil => Some(Gesture::Pencil { track: track.id, points: Vec::new() }),
-            Tool::Zoom => Some(Gesture::ZoomBox { start: origin.x, current: origin.x, lane_y: [lane.min.y, lane.max.y] }),
+            Tool::Zoom => (!mods.alt).then_some(Gesture::ZoomBox { start: origin.x, current: origin.x, lane_y: [lane.min.y, lane.max.y] }),
         };
     }
     if let Some(Gesture::ClipGain { clip, track: t, pos, anchor, fine, fader_bottom }) = &mut app.gesture
@@ -2908,6 +2908,30 @@ mod tests {
         h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
         h.step();
         assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::ZoomIn);
+    }
+
+    #[test]
+    fn alt_click_zooms_out_but_alt_drag_does_nothing() {
+        let alt = egui::Modifiers::ALT;
+        let shift_alt = egui::Modifiers { alt: true, shift: true, ..egui::Modifiers::NONE };
+
+        let mut clicked = zoom_demo("normal");
+        let at = lane_point(&clicked, 0);
+        let before = clicked.state().engine.session().edit.zoom.samples_per_px;
+        click_with(&mut clicked, at, alt);
+        assert!(clicked.state().engine.session().edit.zoom.samples_per_px > before);
+
+        for mods in [alt, shift_alt] {
+            let mut dragged = zoom_demo("normal");
+            let from = lane_point(&dragged, 0);
+            let to = from + vec2(180.0, 30.0);
+            let before = dragged.state().engine.session().edit.zoom;
+            dragged.event(egui::Event::ModifiersChanged(mods));
+            drag(&mut dragged, from, to);
+            dragged.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+            assert!(dragged.state().gesture.is_none());
+            assert_eq!(dragged.state().engine.session().edit.zoom, before);
+        }
     }
 
     #[test]
