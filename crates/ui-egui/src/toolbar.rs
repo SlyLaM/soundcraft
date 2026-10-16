@@ -7,7 +7,7 @@ use crate::{MainWindow, SoundApp, icons};
 use egui::{Align2, Color32, CornerRadius, Key, Painter, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use serde_json::json;
 use soundcraft_engine::edit::{SHUFFLE_LOCK, SNAP_TO_GRID};
-use soundcraft_model::{AutoParam, EditMode, Session, Tool, TrackKind};
+use soundcraft_model::{AutoParam, EditMode, Session, Tool, TrackKind, ZoomMode};
 use soundcraft_time::{FeetFramesValue, GridScale, GridValue, NoteValue, Samples, TimeFormat, TimecodeValue, format_length};
 
 pub const HEIGHT: f32 = 78.0;
@@ -171,7 +171,9 @@ fn tools(app: &mut SoundApp, ui: &mut Ui) {
                 ] {
                     let smart_member = cur == Tool::Smart && matches!(tool, Tool::Trim | Tool::Selector | Tool::Grabber);
                     let tip = format!("{}{}", tool.label(), tool.fkey().map(|k| format!(" ({k})")).unwrap_or_default());
-                    if icon_button(ui, vec2(36.0, 26.0), icon, cur == tool || smart_member, &tip).clicked() {
+                    if tool == Tool::Zoom {
+                        zoom_tool_selector(app, ui, cur == Tool::Zoom, &tip);
+                    } else if icon_button(ui, vec2(36.0, 26.0), icon, cur == tool || smart_member, &tip).clicked() {
                         let _ = app.run("edit.tool", json!({"tool": tool.id()}));
                     }
                 }
@@ -208,6 +210,58 @@ fn tools(app: &mut SoundApp, ui: &mut Ui) {
                 }
             });
         });
+    });
+}
+
+fn zoom_tool_selector(app: &mut SoundApp, ui: &mut Ui, selected: bool, tip: &str) {
+    let mode = app.engine.session().edit.zoom_mode;
+    let t = Tokens::current();
+    let (rect, _) = ui.allocate_exact_size(vec2(36.0, 26.0), Sense::hover());
+    let menu_rect = Rect::from_min_max(pos2(rect.max.x - 12.0, rect.min.y), rect.max);
+    let select_rect = Rect::from_min_max(rect.min, pos2(menu_rect.min.x, rect.max.y));
+    let select = ui.interact(select_rect, ui.id().with("zoom_tool"), Sense::click()).on_hover_text(tip);
+    let menu = ui.interact(menu_rect, ui.id().with("zoom_tool_menu"), Sense::click()).on_hover_text("Zoom tool mode");
+    let combined = select.clone().union(menu.clone());
+    combined.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Zoom tool"));
+    key(ui.painter(), rect, &combined, if selected { t.accent } else { key_fill(&combined) });
+    let tint = if selected { Color32::WHITE } else { t.text };
+    let icon = if mode == ZoomMode::Single { "zoom_single" } else { "zoom" };
+    icons::draw(ui.painter(), Rect::from_center_size(rect.center() - vec2(2.0, 0.0), vec2(20.0, 20.0)), icon, tint);
+    icons::draw(ui.painter(), Rect::from_min_size(pos2(rect.max.x - 9.0, rect.max.y - 9.0), vec2(7.0, 6.0)), "triangle_down", tint);
+    if select.clicked() {
+        let _ = app.run("edit.tool", json!({"tool": Tool::Zoom.id()}));
+    }
+    let held = ui.input(|i| {
+        i.pointer.primary_down()
+            && i.pointer.press_origin().is_some_and(|p| rect.contains(p))
+            && i.pointer.latest_pos().is_some_and(|p| rect.contains(p))
+            && i.pointer.press_start_time().is_some_and(|started| i.time - started >= 0.3)
+    });
+    if ui.input(|i| i.pointer.primary_down() && i.pointer.press_origin().is_some_and(|p| rect.contains(p)))
+        && let Some(remaining) = ui.input(|i| i.pointer.press_start_time().map(|started| 0.3 - (i.time - started)))
+        && remaining > 0.0
+    {
+        ui.ctx().request_repaint_after_secs(remaining as f32);
+    }
+    let long_press_id = combined.id.with("long_press");
+    if held {
+        ui.ctx().data_mut(|d| d.insert_temp(long_press_id, true));
+    }
+    let released_after_hold = ui.input(|i| i.pointer.primary_released()) && ui.ctx().data(|d| d.get_temp::<bool>(long_press_id)).unwrap_or(false);
+    if ui.input(|i| i.pointer.primary_released()) {
+        ui.ctx().data_mut(|d| d.remove::<bool>(long_press_id));
+    }
+    let open = (menu.clicked() || combined.secondary_clicked() || held || released_after_hold).then_some(egui::SetOpenCommand::Bool(true));
+    let close = if released_after_hold { egui::PopupCloseBehavior::IgnoreClicks } else { egui::PopupCloseBehavior::CloseOnClickOutside };
+    egui::Popup::menu(&combined).open_memory(open).close_behavior(close).show(|ui| {
+        for choice in [ZoomMode::Normal, ZoomMode::Single] {
+            let response = ui.selectable_label(mode == choice, choice.label());
+            if response.clicked() {
+                let _ = app.run("edit.zoom_mode", json!({"mode": choice.id()}));
+                let _ = app.run("edit.tool", json!({"tool": Tool::Zoom.id()}));
+                ui.close();
+            }
+        }
     });
 }
 
@@ -1238,5 +1292,69 @@ mod counter_input_tests {
         output.textures_delta.clear();
         assert_eq!(app.engine.session().edit.selection.start, 1_250);
         assert!(app.counter_edit.is_none());
+    }
+}
+
+#[cfg(test)]
+mod zoom_tests {
+    use super::*;
+    use egui::{Event, Modifiers, PointerButton};
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    fn zoom_selector() -> Harness<'static, SoundApp> {
+        let app = SoundApp::new(soundcraft_engine::Engine::default(), None, crate::Services::default());
+        let mut h = Harness::builder()
+            .with_size(vec2(240.0, 160.0))
+            .with_step_dt(1.0 / 60.0)
+            .build_ui_state(|ui, app: &mut SoundApp| zoom_tool_selector(app, ui, true, "Zoom tool"), app);
+        h.run_steps(3);
+        h
+    }
+
+    fn pointer_button(h: &mut Harness<SoundApp>, at: egui::Pos2, button: PointerButton, pressed: bool) {
+        h.event(Event::PointerButton { pos: at, button, pressed, modifiers: Modifiers::NONE });
+        h.step();
+    }
+
+    #[test]
+    fn zoom_mode_menu_opens_on_right_click_and_closes_after_a_choice() {
+        let mut h = zoom_selector();
+        let at = h.get_by_label("Zoom tool").rect().center();
+        h.hover_at(at);
+        pointer_button(&mut h, at, PointerButton::Secondary, true);
+        pointer_button(&mut h, at, PointerButton::Secondary, false);
+        assert!(h.query_by_label("Single Zoom").is_some());
+
+        // Popup accessibility rectangles are local to their Area in kittest, so click the second
+        // row relative to the anchored tool button.
+        let choice = pos2(at.x + 10.0, h.get_by_label("Zoom tool").rect().max.y + 42.0);
+        h.hover_at(choice);
+        pointer_button(&mut h, choice, PointerButton::Primary, true);
+        pointer_button(&mut h, choice, PointerButton::Primary, false);
+        h.run_steps(2);
+        assert_eq!(h.state().engine.session().edit.zoom_mode, ZoomMode::Single);
+        assert!(h.query_by_label("Single Zoom").is_none());
+    }
+
+    #[test]
+    fn zoom_mode_menu_stays_open_after_a_long_press_is_released() {
+        let mut h = zoom_selector();
+        let at = h.get_by_label("Zoom tool").rect().center();
+        h.hover_at(at);
+        pointer_button(&mut h, at, PointerButton::Primary, true);
+        h.run_steps(20);
+        assert!(h.query_by_label("Single Zoom").is_some());
+
+        pointer_button(&mut h, at, PointerButton::Primary, false);
+        h.run_steps(2);
+        assert!(h.query_by_label("Single Zoom").is_some());
+
+        let outside = pos2(200.0, 130.0);
+        h.hover_at(outside);
+        pointer_button(&mut h, outside, PointerButton::Primary, true);
+        pointer_button(&mut h, outside, PointerButton::Primary, false);
+        h.run_steps(2);
+        assert!(h.query_by_label("Single Zoom").is_none());
     }
 }
