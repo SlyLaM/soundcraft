@@ -183,13 +183,11 @@ fn tools(app: &mut SoundApp, ui: &mut Ui) {
             let rr = row.response.rect;
             let bx0 = rr.min.x + 76.0;
             let bx1 = bx0 + 38.0 * 3.0 - 2.0;
-            let bracket = Rect::from_min_max(pos2(bx0 - 2.0, r.min.y + 1.0), pos2(bx1 + 2.0, rr.min.y + 8.0));
-            let resp = ui.interact(bracket, ui.id().with("smart"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+            let outline = Rect::from_min_max(pos2(bx0 - 3.0, r.min.y + 1.0), pos2(bx1 + 3.0, rr.max.y + 2.0));
+            let hit = Rect::from_min_max(outline.min, pos2(outline.max.x, rr.min.y + 10.0));
+            let resp = ui.interact(hit, ui.id().with("smart"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
             let color = if cur == Tool::Smart { t.accent } else { t.tool_bracket_off };
-            let stroke = Stroke::new(2.0, color);
-            ui.painter().line_segment([bracket.left_top(), bracket.right_top()], stroke);
-            ui.painter().line_segment([bracket.left_top(), bracket.left_bottom()], stroke);
-            ui.painter().line_segment([bracket.right_top(), bracket.right_bottom()], stroke);
+            ui.painter().rect_stroke(outline, 2.0, Stroke::new(3.0, color), StrokeKind::Inside);
             resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, cur == Tool::Smart, "Smart Tool"));
             if resp.on_hover_text("Smart Tool (hold any two of F6, F7 and F8)").clicked() {
                 let _ = app.run("edit.tool", json!({"tool": "smart"}));

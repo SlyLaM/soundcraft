@@ -117,7 +117,7 @@ fn toolbar_keyboard_activation_changes_tools_without_transport_or_marker_actions
     h.run_steps(3);
     assert_eq!(h.state().engine.session().edit.tool, soundcraft_model::Tool::Trim);
     let smart = h.get_by_label("Smart Tool").rect();
-    assert!(smart.width() >= 110.0 && smart.height() >= 12.0, "Smart Tool hit target is {smart:?}");
+    assert!(smart.width() >= 110.0 && smart.height() >= 14.0, "Smart Tool hit target is {smart:?}");
     h.get_by_label("Smart Tool").click();
     h.run_steps(3);
     assert_eq!(h.state().engine.session().edit.tool, soundcraft_model::Tool::Smart);
