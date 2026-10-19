@@ -19,6 +19,7 @@ pub mod mix_window;
 pub mod ops_windows;
 pub mod palette;
 pub mod panels;
+pub mod preferences;
 mod recent;
 pub mod recovery;
 pub mod sampler_window;
@@ -97,6 +98,12 @@ pub struct UiState {
     pub show_workspace: bool,
     pub show_configurations: bool,
     pub show_playback_engine: bool,
+    /// Setup › Preferences. The selected page is kept per machine; the search and staged values
+    /// live in [`preferences::PreferencesState`] and are discarded when the window closes.
+    pub show_preferences: bool,
+    pub preferences_page: preferences::PreferencesPage,
+    pub preferences_window_pos: Option<[f32; 2]>,
+    pub preferences_window_size: [f32; 2],
     /// The audio device choice (Setup › Playback Engine), kept with the preferences: per machine.
     pub audio: soundcraft_playback::AudioConfig,
     /// The Mix window lives in its own native window (Window › Mix in Separate Window); the main
@@ -164,6 +171,10 @@ impl Default for UiState {
             show_workspace: false,
             show_configurations: false,
             show_playback_engine: false,
+            show_preferences: false,
+            preferences_page: preferences::PreferencesPage::default(),
+            preferences_window_pos: None,
+            preferences_window_size: [960.0, 700.0],
             audio: soundcraft_playback::AudioConfig::default(),
             mix_separate: false,
             show_io_setup: false,
@@ -293,6 +304,7 @@ pub struct SoundApp {
     pub ops: ops_windows::OpsState,
     pub extra: extra_windows::ExtraState,
     pub palette: palette::PaletteState,
+    pub preferences: preferences::PreferencesState,
     /// Bring the separate Mix window to the front on the next frame.
     pub(crate) focus_mix: bool,
     pub synthetic: Vec<egui::Event>,
@@ -380,6 +392,7 @@ impl SoundApp {
             ops: ops_windows::OpsState::default(),
             extra: extra_windows::ExtraState::default(),
             palette: palette::PaletteState::default(),
+            preferences: preferences::PreferencesState::default(),
             focus_mix: false,
             synthetic: Vec::new(),
             sample_drop_targets: Vec::new(),
@@ -1256,6 +1269,7 @@ impl SoundApp {
         }
         panels::floating(self, &ctx);
         windows::show(self, &ctx);
+        preferences::show(self, &ctx);
         video_window::show(self, &ctx);
         ops_windows::show(self, &ctx);
         extra_windows::show(self, &ctx);

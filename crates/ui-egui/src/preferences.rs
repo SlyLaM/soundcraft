@@ -1,0 +1,885 @@
+//! Setup › Preferences: the complete settings surface, including placeholders for features whose
+//! underlying behaviour does not exist yet. A placeholder is never interactive: enabling a row
+//! requires a real command and persistence policy first.
+
+use crate::SoundApp;
+use crate::theme::{ThemeMode, Tokens};
+use egui::{Key, Modifiers, RichText, Stroke, vec2};
+use serde_json::json;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreferencesPage {
+    #[default]
+    Display,
+    Operation,
+    Editing,
+    Mixing,
+    Metering,
+    Processing,
+    Midi,
+    Collaboration,
+    Synchronization,
+}
+
+impl PreferencesPage {
+    pub const ALL: [Self; 9] = [
+        Self::Display,
+        Self::Operation,
+        Self::Editing,
+        Self::Mixing,
+        Self::Metering,
+        Self::Processing,
+        Self::Midi,
+        Self::Collaboration,
+        Self::Synchronization,
+    ];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Display => "Display",
+            Self::Operation => "Operation",
+            Self::Editing => "Editing",
+            Self::Mixing => "Mixing",
+            Self::Metering => "Metering",
+            Self::Processing => "Processing",
+            Self::Midi => "MIDI",
+            Self::Collaboration => "Collaboration",
+            Self::Synchronization => "Synchronization",
+        }
+    }
+
+    const fn sections(self) -> &'static [Section] {
+        match self {
+            Self::Display => DISPLAY,
+            Self::Operation => OPERATION,
+            Self::Editing => EDITING,
+            Self::Mixing => MIXING,
+            Self::Metering => METERING,
+            Self::Processing => PROCESSING,
+            Self::Midi => MIDI,
+            Self::Collaboration => COLLABORATION,
+            Self::Synchronization => SYNCHRONIZATION,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PreferencesDraft {
+    theme: ThemeMode,
+}
+
+#[derive(Debug, Default)]
+pub struct PreferencesState {
+    search: String,
+    draft: Option<PreferencesDraft>,
+}
+
+#[derive(Clone, Copy)]
+enum Control {
+    Check(&'static str),
+    Choice(&'static str, &'static str),
+    Value(&'static str, &'static str),
+    Button(&'static str),
+    Radios(&'static str, &'static [&'static str]),
+    Theme,
+}
+
+impl Control {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Check(label) | Self::Button(label) | Self::Choice(label, _) | Self::Value(label, _) | Self::Radios(label, _) => label,
+            Self::Theme => "UI Theme",
+        }
+    }
+
+    fn search_text(self) -> String {
+        match self {
+            Self::Choice(label, value) | Self::Value(label, value) => format!("{label} {value}"),
+            Self::Radios(label, values) => format!("{label} {}", values.join(" ")),
+            _ => self.label().to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Section {
+    title: &'static str,
+    controls: &'static [Control],
+}
+
+const DISPLAY: &[Section] = &[
+    Section {
+        title: "Basics",
+        controls: &[
+            Control::Check("Track Position Numbers Stay with Hidden Tracks"),
+            Control::Check("Function Tool Tips"),
+            Control::Check("Detailed Tool Tips"),
+            Control::Value("Edit Window Default Length", "00:00:00:00"),
+            Control::Choice("Organize Plugin Menus By", "Category & Manufacturer"),
+            Control::Choice("Organize Track I/O Menus By", "Type"),
+            Control::Check("Auto-Switch Input Language"),
+            Control::Choice("Language", "English"),
+            Control::Check("Default Automatic Naming to English"),
+            Control::Theme,
+            Control::Choice("Reduce Visual Effects", "Never"),
+        ],
+    },
+    Section {
+        title: "General Color",
+        controls: &[
+            Control::Check("MIDI Note Color Shows Velocity"),
+            Control::Choice("Default Track Color Coding", "Track Type"),
+            Control::Choice("Default Clip Color Coding", "Track Color"),
+        ],
+    },
+    Section {
+        title: "Warnings & Dialogs",
+        controls: &[
+            Control::Button("Reset “Don’t Show This Again” Settings"),
+            Control::Check("Show Dashboard Window at Startup"),
+            Control::Check("Show Dashboard After Closing a Session"),
+        ],
+    },
+    Section {
+        title: "Marker Colors",
+        controls: &[
+            Control::Check("Randomize Marker Color Upon Creation"),
+            Control::Check("Show Marker Lane Colors in Timeline Rulers"),
+            Control::Check("Show Marker Lane Colors in Tracks"),
+        ],
+    },
+    Section {
+        title: "Pinned Tracks",
+        controls: &[
+            Control::Check("Auto-Adjust Pinned Area for Tracks"),
+            Control::Check("Adjusting Pinned Area Resizes Tracks"),
+            Control::Choice("Original Track Height While Pinned", "Small"),
+        ],
+    },
+];
+
+const OPERATION: &[Section] = &[
+    Section {
+        title: "Transport",
+        controls: &[
+            Control::Check("Timeline Insertion and Play Start Follow Playback"),
+            Control::Check("Edit Insertion Follows Scrub and Shuttle"),
+            Control::Check("Audio During Fast Forward and Rewind"),
+            Control::Check("Latch Fast Forward and Rewind"),
+            Control::Check("Play Start Follows Timeline Selection"),
+            Control::Check("Dynamic Transport Follows Selection During Playback"),
+            Control::Check("Reserve Voices for Preview in Context"),
+            Control::Value("Custom Shuttle Lock Speed", "800 %"),
+            Control::Value("Custom Fast Forward/Rewind Speed", "300 %"),
+            Control::Value("Back/Forward Amount", "2|0|000"),
+            Control::Choice("Back/Forward Time Scale", "Bars|Beats"),
+            Control::Radios("Numeric Keypad", &["Classic", "Transport", "Shuttle"]),
+            Control::Check("Use Separate Play and Stop Keys"),
+        ],
+    },
+    Section {
+        title: "Record",
+        controls: &[
+            Control::Choice("Record Enable Buttons", "Latch Audio Tracks"),
+            Control::Check("Enable Automation in Record"),
+            Control::Check("Link Record and Play Faders"),
+            Control::Check("Audio Track Record Lock"),
+            Control::Check("Transport Record Lock"),
+            Control::Check("Disable Input Monitoring when Disarming a Stopped Track"),
+            Control::Check("Mute Record-Armed Tracks While Stopped"),
+            Control::Check("Enable DSP Mode for Record-Armed or Input-Monitored Tracks"),
+            Control::Check("Disable DSP Mode when Disabling Record and Input"),
+            Control::Check("Console-Style Input Monitoring Indicators"),
+            Control::Check("Create New Playlists when Loop Recording"),
+            Control::Radios("Online Recording Starts", &["At Timecode Lock", "At Insertion or Selection"]),
+            Control::Value("Destructive Punch File Length", "25 minutes"),
+        ],
+    },
+    Section {
+        title: "Auto Backup",
+        controls: &[
+            Control::Check("Enable Session File Auto Backup"),
+            Control::Value("Keep Most Recent Session Backups", "10"),
+            Control::Value("Backup Every", "5 minutes"),
+        ],
+    },
+    Section {
+        title: "Miscellaneous",
+        controls: &[
+            Control::Check("Mouse Wheel Scrolling Snaps to Track"),
+            Control::Value("Clip Auto Fade In/Out Length", "0 ms"),
+            Control::Value("Local Waveform Cache Versions", "0"),
+        ],
+    },
+    Section {
+        title: "User Media and Settings Location",
+        controls: &[
+            Control::Button("Change Documentation and Settings Location"),
+            Control::Button("Change Project Media Cache Location"),
+            Control::Button("Change Sound Libraries Location"),
+            Control::Check("Show Sound Libraries in Workspace Locations"),
+        ],
+    },
+    Section {
+        title: "Video",
+        controls: &[
+            Control::Check("Enable GPU Processing"),
+            Control::Check("Prevent Tearing"),
+            Control::Choice("Play Start Latency", "1 — Shortest"),
+            Control::Choice("Slewing", "Disabled While Looping"),
+        ],
+    },
+    Section {
+        title: "Data Collection and Personalization",
+        controls: &[Control::Check("Anonymous Usage Data"), Control::Check("Personalize the Experience")],
+    },
+    Section {
+        title: "Logging",
+        controls: &[Control::Button("Save Logs"), Control::Button("Reset Logging"), Control::Check("Advanced Video Logging")],
+    },
+];
+
+const EDITING: &[Section] = &[
+    Section {
+        title: "Clips",
+        controls: &[
+            Control::Check("Clip List Selection Follows Edit Selection"),
+            Control::Check("Edit Selection Follows Clip List Selection"),
+            Control::Check("Auto-Name Separated Clips"),
+            Control::Check("Separate Clip Operates on All Related Takes"),
+            Control::Check("Send Fully Overlapped Clips to a Playlist While Editing"),
+            Control::Check("Send Fully Overlapped Clips to a Playlist While Recording"),
+            Control::Check("Tab Respects Breakpoints in Automation Lanes"),
+            Control::Check("Double-Click Selects Automation Breakpoints"),
+            Control::Value("Clip Gain Nudge Value", "0.5 dB"),
+            Control::Choice("Number Keys 1–5 Control", "Zoom Presets"),
+            Control::Choice("Double-Clicking an Audio Clip Opens", "Name Dialog"),
+        ],
+    },
+    Section {
+        title: "Fades",
+        controls: &[
+            Control::Value("Fades Dialog Preview Pre-Roll", "3000 ms"),
+            Control::Value("Fades Dialog Preview Post-Roll", "3000 ms"),
+            Control::Value("Punch Recording Crossfade Length", "0 ms"),
+            Control::Check("Preserve Fades when Editing"),
+            Control::Check("Auto Accept Adjust Bounds"),
+            Control::Choice("Smart Tool Fade Adjustment", "Always On"),
+            Control::Button("Default Fade In"),
+            Control::Button("Default Fade Out"),
+            Control::Button("Default Crossfade"),
+            Control::Button("Default Sliced-Loop Fade"),
+        ],
+    },
+    Section {
+        title: "Tracks",
+        controls: &[
+            Control::Check("New Tracks Default to Tick Timebase"),
+            Control::Check("Suppress Name Dialog when Creating New Playlists"),
+            Control::Check("Show Target Playlists after Sending a Clip Selection"),
+            Control::Choice("Add New Playlists", "At Bottom"),
+        ],
+    },
+    Section {
+        title: "Zoom Toggle",
+        controls: &[
+            Control::Choice("Vertical MIDI Zoom", "Selection"),
+            Control::Choice("Horizontal Zoom", "Selection"),
+            Control::Check("Remove Range Selection after Zooming In"),
+            Control::Choice("Track Height", "Fit to Window"),
+            Control::Choice("Track View", "No Change"),
+            Control::Check("Separate Grid Settings when Zoomed In"),
+            Control::Check("Zoom Toggle Follows Edit Selection"),
+        ],
+    },
+    Section {
+        title: "Memory Locations",
+        controls: &[
+            Control::Check("Auto-Name Memory Locations when Playing"),
+            Control::Check("Recall Memory Location at Original Track"),
+            Control::Check("Marker Target Follows First Selected Track"),
+        ],
+    },
+    Section { title: "Undo", controls: &[Control::Value("Levels of Undo", "64")] },
+];
+
+const MIXING: &[Section] = &[
+    Section {
+        title: "Setup",
+        controls: &[
+            Control::Value("Sends Default to", "−∞ dB"),
+            Control::Check("Send Pans Default to Follow Main Pan"),
+            Control::Check("Use Absolute Pan Linking"),
+            Control::Check("Allow Sends to Persist During Low-Latency Monitoring"),
+            Control::Choice("Default EQ", "None"),
+            Control::Choice("Default EQ Insert Slot", "None"),
+            Control::Choice("Default Dynamics", "None"),
+            Control::Choice("Default Dynamics Insert Slot", "None"),
+            Control::Check("Auto Insert Default Plugins from Control Surfaces"),
+        ],
+    },
+    Section {
+        title: "Controllers",
+        controls: &[
+            Control::Check("Edit Window Follows Banking"),
+            Control::Check("Edit Window Follows Selection"),
+            Control::Check("Mix Window Follows Banking"),
+            Control::Check("Mix Window Follows Selection"),
+            Control::Check("Scroll to Track Banks Controllers"),
+            Control::Check("Always Fill Channel Strips when Banking"),
+            Control::Check("Always Show Assignable Knob Highlight"),
+            Control::Value("Touch Timeout", "1000 ms"),
+            Control::Choice("EQ and Dynamics Cycling Starts at Insert", "None"),
+        ],
+    },
+    Section {
+        title: "Automation",
+        controls: &[
+            Control::Check("Smooth and Thin Data after Pass"),
+            Control::Choice("Degree of Thinning", "Some"),
+            Control::Check("Plugin Controls Default to Auto-Enabled"),
+            Control::Check("Suppress Automation Write-To Warnings"),
+            Control::Check("Latch Switch Controls in Touch Mode"),
+            Control::Check("Allow Latch Prime in Stop"),
+            Control::Check("Coalesce when Removing Members from a VCA Group"),
+            Control::Check("Standard VCA Logic for Group Attributes"),
+            Control::Check("Include Sends in Trim Mode"),
+            Control::Check("Include Control Changes in Undo Queue"),
+            Control::Check("Link Object and Audio Recording"),
+            Control::Radios("After Write Pass, Switch To", &["Touch", "Latch", "No Change"]),
+            Control::Radios("Coalesce Trim Automation", &["After Every Pass", "On Exiting Trim Mode", "Manually"]),
+            Control::Value("Steep Breakpoint Smoothing Time", "0 ms"),
+            Control::Value("Automation Match Time", "250 ms"),
+            Control::Value("Automation Glide Time", "1000 ms"),
+        ],
+    },
+    Section {
+        title: "Delay Compensation",
+        controls: &[Control::Choice("Time Mode", "Samples"), Control::Check("Compensate Side Chains"), Control::Check("Compensate Hardware Inputs")],
+    },
+    Section {
+        title: "Routing Coefficients",
+        controls: &[
+            Control::Choice("New Session Fold Down", "Modern"),
+            Control::Choice("New Session 5.x to 7.x/9.x", "Direct to Rear Surrounds"),
+            Control::Choice("New Session 7.x/9.x to 5.x", "Downmix to Surrounds"),
+            Control::Value("New Session Surround to Stereo", "−3.0 dB"),
+            Control::Check("New Session Includes LFE in Fold Down"),
+            Control::Choice("Current Session Fold Down", "Modern"),
+            Control::Choice("Current Session 5.x to 7.x/9.x", "Direct to Rear Surrounds"),
+            Control::Choice("Current Session 7.x/9.x to 5.x", "Downmix to Surrounds"),
+            Control::Value("Current Session Surround to Stereo", "−3.0 dB"),
+            Control::Check("Current Session Includes LFE in Fold Down"),
+        ],
+    },
+];
+
+const METER_TYPES: &[&str] = &[
+    "Sample Peak",
+    "Classic",
+    "Linear",
+    "Linear Extended",
+    "RMS",
+    "VU",
+    "Digital VU",
+    "PPM Digital",
+    "PPM BBC",
+    "PPM Nordic",
+    "PPM EBU",
+    "PPM DIN",
+    "K-12",
+    "K-14",
+    "K-20",
+    "Live Peak",
+    "Live RMS",
+];
+
+const METERING: &[Section] = &[
+    Section {
+        title: "Track and Master Meter Types",
+        controls: &[
+            Control::Check("Track and Master Meter Types Linked"),
+            Control::Radios("Available Meter Types", METER_TYPES),
+            Control::Choice("Track Meters", "Digital VU"),
+            Control::Choice("Master Meters", "Linear"),
+        ],
+    },
+    Section {
+        title: "Advanced Meter Type Settings",
+        controls: &[
+            Control::Choice("Meter Type", "Digital VU"),
+            Control::Value("Decay", "100 dB in 1.00 s"),
+            Control::Value("0 dB Reference", "0 dBFS"),
+            Control::Value("Integration Time", "— ms"),
+            Control::Value("Color Break High", "−6 dB"),
+            Control::Value("Color Break Low", "−20 dB"),
+            Control::Button("Reset Advanced Meter Settings"),
+        ],
+    },
+    Section {
+        title: "Peak / Clip",
+        controls: &[
+            Control::Radios("Peak Hold", &["3 Seconds", "Infinite", "None"]),
+            Control::Radios("Clip Indication", &["3 Seconds", "Infinite", "None"]),
+            Control::Value("Calibration Reference Level", "−18 dB"),
+        ],
+    },
+    Section {
+        title: "Display",
+        controls: &[
+            Control::Check("Show Send Assignment Level Meter"),
+            Control::Check("Show Insert Assignment Gain Reduction Meter"),
+            Control::Check("Show Track Gain Reduction Meter"),
+            Control::Radios(
+                "Gain Reduction Meter Type",
+                &["Compressor/Limiter Only", "Expander/Gate Only", "Priority Compressor/Limiter", "Priority Expander/Gate", "All — Summed"],
+            ),
+        ],
+    },
+];
+
+const PROCESSING: &[Section] = &[
+    Section {
+        title: "Offline Processing",
+        controls: &[Control::Radios("Default Handle Length", &["Whole File", "Length"]), Control::Value("Handle Length", "2.00 seconds")],
+    },
+    Section {
+        title: "Time Compression / Expansion",
+        controls: &[Control::Choice("Processor", "Time Stretch"), Control::Choice("Default Settings", "Factory Default")],
+    },
+    Section {
+        title: "Import",
+        controls: &[
+            Control::Check("Convert Imported WAV Files to Broadcast Wave"),
+            Control::Check("Automatically Copy Files on Import"),
+            Control::Check("Convert Copied Files to Session Format"),
+            Control::Check("Do Not Convert Sample Rate on Import"),
+            Control::Check("Import Sliced Loops as Clip Groups"),
+            Control::Check("Automatically Create Fades"),
+            Control::Radios("Desktop Drag-and-Drop Conforms to Session Tempo", &["No Files", "Tagged Loop Files Only", "All Files"]),
+            Control::Choice("Sample Rate Conversion Quality", "Highest"),
+        ],
+    },
+    Section {
+        title: "Elastic Audio",
+        controls: &[
+            Control::Choice("Default Plugin", "Polyphonic"),
+            Control::Value("Default Input Gain", "0.0 dB"),
+            Control::Check("Enable Elastic Audio on New Tracks"),
+        ],
+    },
+    Section { title: "Commit", controls: &[Control::Radios("Rendered File Bit Depth", &["Always Use 32-bit", "Follow Session Settings"])] },
+    Section {
+        title: "DSP Management",
+        controls: &[Control::Check("Open Unresourced DSP Plugins as Native"), Control::Check("Enable Analog Console Processing in New Sessions")],
+    },
+    Section { title: "ARA", controls: &[Control::Check("Automatic Analysis on Tick-Based Tracks")] },
+    Section {
+        title: "Miscellaneous",
+        controls: &[
+            Control::Choice("Parallel Task Optimization", "High"),
+            Control::Check("Display Waveforms in Low Resolution While Loading"),
+            Control::Check("Noise Burst Peak Protection"),
+        ],
+    },
+];
+
+const MIDI: &[Section] = &[
+    Section {
+        title: "Basics",
+        controls: &[
+            Control::Check("Remove Range Selection after Opening a MIDI or Score Editor"),
+            Control::Check("Use MIDI to Tap Tempo"),
+            Control::Check("Display Events as Modified by Real-Time Properties"),
+            Control::Check("Use F11 for Wait for Note"),
+            Control::Check("Automatically Create Click Track in New Sessions"),
+            Control::Check("MIDI Input Monitoring Follows Selected Track"),
+            Control::Value("Pencil Resolution for Controller Data", "30 ms"),
+            Control::Value("Global MIDI Playback Offset", "0 samples"),
+            Control::Choice("Double-Clicking a MIDI Clip Opens", "Docked MIDI Editor"),
+            Control::Choice("MIDI Merge Release Mode", "Latch Until Next Event"),
+        ],
+    },
+    Section { title: "Note Display", controls: &[Control::Radios("Middle C", &["C3", "C4", "MIDI Note 60"])] },
+    Section {
+        title: "Delay Compensation for External Devices",
+        controls: &[Control::Check("MIDI Beat Clock"), Control::Check("MIDI Timecode"), Control::Check("MIDI Notes and Controllers")],
+    },
+    Section { title: "MIDI / Score Editor Display", controls: &[Control::Value("Additional Empty Bars in the Score Editor", "8")] },
+];
+
+const COLLABORATION: &[Section] = &[
+    Section {
+        title: "Track Collaboration",
+        controls: &[
+            Control::Check("New Tracks Are Shared"),
+            Control::Check("First Invite Shares All Tracks"),
+            Control::Check("Joining a Project Downloads All Shared Tracks"),
+            Control::Check("Enable Track Notes Dialog"),
+            Control::Check("Automatically Download New Shared Tracks"),
+        ],
+    },
+    Section {
+        title: "Cloud Storage Services",
+        controls: &[
+            Control::Check("Prevent Others from Overwriting an Open Session"),
+            Control::Choice("Lock File Extension", ".lock"),
+            Control::Check("Keep Unused Folders on Session Close"),
+        ],
+    },
+];
+
+const SYNCHRONIZATION: &[Section] = &[
+    Section {
+        title: "Machine Control",
+        controls: &[
+            Control::Check("Machine Chases Memory Location"),
+            Control::Check("Machine Follows Edit Insertion and Scrub"),
+            Control::Choice("Controlled Device Type", "Non-Linear Device"),
+            Control::Check("Machine Cues Intelligently"),
+            Control::Check("Stop at Shuttle Speed Zero"),
+            Control::Check("Non-Linear Transport Error Suppression"),
+        ],
+    },
+    Section {
+        title: "Remote Mode",
+        controls: &[
+            Control::Check("Ignore Track Arming"),
+            Control::Check("Set Servo Lock at Play"),
+            Control::Check("Allow External Track-Arm Commands in Local Mode"),
+            Control::Check("Allow External Transport Commands in Local Mode"),
+            Control::Value("Punch In Frame Offset", "0 frames"),
+            Control::Value("Punch Out Frame Offset", "0 frames"),
+            Control::Value("Delay after Play Command", "0 frames"),
+        ],
+    },
+    Section {
+        title: "Synchronization",
+        controls: &[
+            Control::Value("Minimum Sync Delay", "30 frames"),
+            Control::Value("Delay before Locking to Longitudinal Timecode", "0 frames"),
+            Control::Value("Delay before Locking to Serial Timecode", "0 frames"),
+        ],
+    },
+    Section {
+        title: "Linked Systems",
+        controls: &[
+            Control::Check("Transmit Solos"),
+            Control::Check("Receive Solos"),
+            Control::Check("Solo Independent of Linked State"),
+            Control::Check("Audio Engine Errors Stop All Linked Systems"),
+            Control::Check("Transmit Play Selections"),
+            Control::Check("Receive Play Selections"),
+        ],
+    },
+];
+
+enum Action {
+    Apply,
+    Cancel,
+}
+
+pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
+    let mut open = app.ui.show_preferences;
+    if !open {
+        app.preferences.draft = None;
+        app.preferences.search.clear();
+        return;
+    }
+
+    let mut draft = app.preferences.draft.unwrap_or(PreferencesDraft { theme: app.ui.theme });
+    let mut search = std::mem::take(&mut app.preferences.search);
+    let mut page = app.ui.preferences_page;
+    let mut action = None;
+    select_page_from_keyboard(ctx, &mut page);
+
+    // A transparent middle-layer area makes this a modal window without borrowing the app while
+    // the window body is drawn. The Preferences window itself is on the foreground layer.
+    let screen = ctx.content_rect();
+    egui::Area::new(egui::Id::new("preferences_modal_blocker")).order(egui::Order::Middle).fixed_pos(screen.min).show(ctx, |ui| {
+        ui.allocate_exact_size(screen.size(), egui::Sense::click_and_drag());
+    });
+
+    let mut window = egui::Window::new("SoundCraft Preferences")
+        .id(egui::Id::new("preferences_window"))
+        .open(&mut open)
+        .order(egui::Order::Foreground)
+        .collapsible(false)
+        .resizable(true)
+        .default_size(vec2(app.ui.preferences_window_size[0], app.ui.preferences_window_size[1]))
+        .min_size(vec2(780.0, 520.0));
+    if let Some([x, y]) = app.ui.preferences_window_pos {
+        window = window.default_pos(egui::pos2(x, y));
+    }
+
+    let shown = window.show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            let (icon_rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), egui::Sense::hover());
+            crate::icons::draw(ui.painter(), icon_rect.shrink(1.0), "zoom", Tokens::current().text_dim);
+            let edit = egui::TextEdit::singleline(&mut search).hint_text("Type to search preferences").desired_width(f32::INFINITY);
+            ui.add(edit);
+            if !search.is_empty() && ui.small_button("Clear").clicked() {
+                search.clear();
+            }
+        });
+        ui.add_space(4.0);
+        tabs(ui, &mut page, &search);
+        ui.separator();
+
+        let body_height = (ui.available_height() - 42.0).max(120.0);
+        egui::ScrollArea::vertical().id_salt("preferences_body").max_height(body_height).show(ui, |ui| {
+            page_body(ui, page, &search, &mut draft);
+        });
+
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.add_space(ui.available_width() - 176.0);
+            if ui.add_sized([80.0, 24.0], egui::Button::new("Cancel")).clicked() {
+                action = Some(Action::Cancel);
+            }
+            if ui.add_sized([80.0, 24.0], egui::Button::new("OK").fill(Tokens::current().accent_dark)).clicked() {
+                action = Some(Action::Apply);
+            }
+        });
+    });
+    if let Some(shown) = shown {
+        let rect = shown.response.rect;
+        if rect.min.x.is_finite() && rect.min.y.is_finite() && rect.width().is_finite() && rect.height().is_finite() {
+            app.ui.preferences_window_pos = Some([rect.min.x, rect.min.y]);
+            app.ui.preferences_window_size = [rect.width(), rect.height()];
+        }
+    }
+
+    if ctx.input(|i| i.key_pressed(Key::Escape)) {
+        action = Some(Action::Cancel);
+    } else if ctx.input(|i| i.key_pressed(Key::Enter)) && !ctx.egui_wants_keyboard_input() {
+        action = Some(Action::Apply);
+    }
+
+    if !open && action.is_none() {
+        action = Some(Action::Cancel);
+    }
+    match action {
+        Some(Action::Apply) => {
+            let _ = app.run("ui.theme", json!({"mode": draft.theme.id()}));
+            open = false;
+            app.preferences.draft = None;
+            app.preferences.search.clear();
+        }
+        Some(Action::Cancel) => {
+            open = false;
+            app.preferences.draft = None;
+            app.preferences.search.clear();
+        }
+        None => {
+            app.preferences.draft = Some(draft);
+            app.preferences.search = search;
+        }
+    }
+    app.ui.preferences_page = page;
+    app.ui.show_preferences = open;
+}
+
+fn tabs(ui: &mut egui::Ui, page: &mut PreferencesPage, search: &str) {
+    let t = Tokens::current();
+    egui::ScrollArea::horizontal().id_salt("preferences_tabs").show(ui, |ui| {
+        ui.horizontal(|ui| {
+            for candidate in PreferencesPage::ALL {
+                let hit = page_matches(candidate, search);
+                let text =
+                    if !search.is_empty() && hit { RichText::new(candidate.label()).color(t.meter_yellow) } else { RichText::new(candidate.label()) };
+                if ui.selectable_label(*page == candidate, text).clicked() {
+                    *page = candidate;
+                }
+            }
+        });
+    });
+}
+
+fn page_body(ui: &mut egui::Ui, page: PreferencesPage, search: &str, draft: &mut PreferencesDraft) {
+    let sections = page.sections();
+    ui.columns(2, |columns| {
+        for (index, section) in sections.iter().enumerate() {
+            let column = index % 2;
+            section_ui(&mut columns[column], page, *section, search, draft);
+            columns[column].add_space(6.0);
+        }
+    });
+}
+
+fn section_ui(ui: &mut egui::Ui, page: PreferencesPage, section: Section, search: &str, draft: &mut PreferencesDraft) {
+    let t = Tokens::current();
+    let section_hit = text_matches(section.title, search);
+    let stroke = if !search.is_empty() && section_hit { Stroke::new(1.5, t.meter_yellow) } else { Stroke::new(1.0, t.border) };
+    egui::Frame::new().fill(t.panel_bg2).stroke(stroke).corner_radius(3.0).inner_margin(egui::Margin::same(6)).show(ui, |ui| {
+        ui.set_min_width((ui.available_width() - 12.0).max(280.0));
+        egui::Frame::new().fill(t.toolbar_group).inner_margin(egui::Margin::symmetric(6, 3)).show(ui, |ui| {
+            let title = if !search.is_empty() && section_hit {
+                RichText::new(section.title).strong().color(t.meter_yellow)
+            } else {
+                RichText::new(section.title).strong()
+            };
+            ui.label(title);
+        });
+        ui.add_space(3.0);
+        for (index, control) in section.controls.iter().copied().enumerate() {
+            control_ui(ui, page, section.title, index, control, search, draft);
+        }
+    });
+}
+
+fn control_ui(ui: &mut egui::Ui, page: PreferencesPage, section: &str, index: usize, control: Control, search: &str, draft: &mut PreferencesDraft) {
+    let t = Tokens::current();
+    let hit = text_matches(&control.search_text(), search);
+    let label = |text: &'static str| {
+        if !search.is_empty() && hit { RichText::new(text).color(t.meter_yellow) } else { RichText::new(text) }
+    };
+    let id = ("preference", page, section, index);
+    match control {
+        Control::Theme => {
+            ui.horizontal(|ui| {
+                ui.label(label("UI Theme"));
+                egui::ComboBox::from_id_salt(id).selected_text(draft.theme.label()).show_ui(ui, |ui| {
+                    for mode in ThemeMode::ALL {
+                        ui.selectable_value(&mut draft.theme, mode, mode.label());
+                    }
+                });
+            });
+        }
+        Control::Check(text) => {
+            let mut value = false;
+            ui.add_enabled(false, egui::Checkbox::new(&mut value, label(text))).on_disabled_hover_text("This preference is not available yet.");
+        }
+        Control::Choice(text, value) => {
+            ui.add_enabled_ui(false, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(label(text));
+                    egui::ComboBox::from_id_salt(id).selected_text(value).show_ui(ui, |_| {});
+                });
+            })
+            .response
+            .on_disabled_hover_text("This preference is not available yet.");
+        }
+        Control::Value(text, value) => {
+            ui.add_enabled_ui(false, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(label(text));
+                    let mut shown = value.to_string();
+                    ui.add(egui::TextEdit::singleline(&mut shown).desired_width(96.0));
+                });
+            })
+            .response
+            .on_disabled_hover_text("This preference is not available yet.");
+        }
+        Control::Button(text) => {
+            ui.add_enabled(false, egui::Button::new(label(text))).on_disabled_hover_text("This preference is not available yet.");
+        }
+        Control::Radios(text, values) => {
+            ui.add_enabled_ui(false, |ui| {
+                ui.label(label(text));
+                let mut selected = 0usize;
+                ui.horizontal_wrapped(|ui| {
+                    for (value_index, value) in values.iter().enumerate() {
+                        ui.radio_value(&mut selected, value_index, *value);
+                    }
+                });
+            })
+            .response
+            .on_disabled_hover_text("This preference is not available yet.");
+        }
+    }
+}
+
+fn select_page_from_keyboard(ctx: &egui::Context, page: &mut PreferencesPage) {
+    let mac = ctx.os() == egui::os::OperatingSystem::Mac;
+    let keys = [Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6, Key::Num7, Key::Num8, Key::Num9];
+    let selected = ctx.input(|input| {
+        input.events.iter().find_map(|event| match event {
+            egui::Event::Key { key, pressed: true, repeat: false, modifiers, .. } if page_modifiers(*modifiers, mac) => {
+                keys.iter().position(|candidate| candidate == key)
+            }
+            _ => None,
+        })
+    });
+    if let Some(index) = selected.and_then(|index| PreferencesPage::ALL.get(index).copied()) {
+        *page = index;
+    }
+}
+
+fn page_modifiers(modifiers: Modifiers, mac: bool) -> bool {
+    !modifiers.alt && !modifiers.shift && if mac { modifiers.command && !modifiers.ctrl } else { modifiers.command && modifiers.ctrl }
+}
+
+fn page_matches(page: PreferencesPage, search: &str) -> bool {
+    text_matches(page.label(), search)
+        || page.sections().iter().any(|section| {
+            text_matches(section.title, search) || section.controls.iter().copied().any(|control| text_matches(&control.search_text(), search))
+        })
+}
+
+fn text_matches(text: &str, search: &str) -> bool {
+    let search = search.trim();
+    if search.is_empty() {
+        return false;
+    }
+    let text = text.to_lowercase();
+    search.split_whitespace().all(|term| text.contains(&term.to_lowercase()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soundcraft_engine::Engine;
+
+    #[test]
+    fn search_matches_pages_sections_labels_and_values() {
+        assert!(page_matches(PreferencesPage::Display, "theme"));
+        assert!(page_matches(PreferencesPage::Editing, "zoom selection"));
+        assert!(page_matches(PreferencesPage::Metering, "K-20"));
+        assert!(page_matches(PreferencesPage::Synchronization, "linked systems"));
+        assert!(!page_matches(PreferencesPage::Midi, "waveform cache"));
+    }
+
+    #[test]
+    fn applying_the_only_live_preference_uses_its_ui_command() {
+        let mut app = SoundApp::new(Engine::default(), None, crate::Services::default());
+        assert_eq!(app.ui.theme, ThemeMode::Dark);
+        let draft = PreferencesDraft { theme: ThemeMode::Light };
+        assert!(app.run("ui.theme", json!({"mode": draft.theme.id()})).is_ok());
+        assert_eq!(app.ui.theme, ThemeMode::Light);
+        assert!(!app.engine.is_dirty());
+    }
+
+    #[test]
+    fn setup_menu_opens_preferences_through_the_catalog_command() {
+        let aliases = crate::menus::ui_aliases();
+        assert_eq!(crate::menus::command_for_path("Setup > Preferences...", &aliases).as_deref(), Some("setup.preferences"));
+        let mut app = SoundApp::new(Engine::default(), None, crate::Services::default());
+        assert_eq!(app.run("setup.preferences", json!({"value": true})), Ok(json!({"value": true})));
+        assert!(app.ui.show_preferences);
+    }
+
+    #[test]
+    fn page_order_matches_the_platform_shortcuts() {
+        assert_eq!(PreferencesPage::ALL[0], PreferencesPage::Display);
+        assert_eq!(PreferencesPage::ALL[4], PreferencesPage::Metering);
+        assert_eq!(PreferencesPage::ALL[8], PreferencesPage::Synchronization);
+    }
+
+    #[test]
+    fn empty_search_does_not_highlight_everything() {
+        assert!(!text_matches("Display", ""));
+        assert!(!text_matches("Display", "   "));
+    }
+
+    #[test]
+    fn page_shortcuts_require_the_platform_primary_modifier_only() {
+        let command = Modifiers { command: true, ..Modifiers::NONE };
+        let off_mac_control = Modifiers { command: true, ctrl: true, ..Modifiers::NONE };
+        assert!(page_modifiers(command, true));
+        assert!(!page_modifiers(command, false));
+        assert!(page_modifiers(off_mac_control, false));
+        assert!(!page_modifiers(off_mac_control, true));
+    }
+}
