@@ -994,6 +994,19 @@ mod tests {
         let mixer = &e.session().track(track).unwrap().mixer;
         assert!(!mixer.record_arm && !mixer.input_monitor);
         assert!(e.is_dirty());
+
+        // Live states that are enabled after another document edit survive both directions too.
+        e.execute("mix.volume", &json!({"tracks": [track.0], "db": -12.0})).unwrap();
+        e.execute("mix.record_arm", &json!({"tracks": [track.0], "value": true})).unwrap();
+        e.execute("mix.input_monitor", &json!({"tracks": [track.0], "value": true})).unwrap();
+
+        assert!(e.undo());
+        let mixer = &e.session().track(track).unwrap().mixer;
+        assert!(mixer.record_arm && mixer.input_monitor);
+
+        assert!(e.redo());
+        let mixer = &e.session().track(track).unwrap().mixer;
+        assert!(mixer.record_arm && mixer.input_monitor);
     }
 
     fn volumes(e: &Engine) -> Vec<f32> {
