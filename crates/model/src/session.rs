@@ -793,6 +793,30 @@ mod tests {
     }
 
     #[test]
+    fn live_input_states_are_never_saved_or_restored() {
+        let mut s = Session::default();
+        let t = s.add_track(TrackKind::Audio, ChannelFormat::Mono, None);
+        let track = s.track_mut(t).unwrap();
+        track.mixer.mute = true;
+        track.mixer.record_arm = true;
+        track.mixer.input_monitor = true;
+
+        let mut value = serde_json::to_value(&s).unwrap();
+        let mixer = value["tracks"][0]["mixer"].as_object_mut().unwrap();
+        assert!(!mixer.contains_key("record_arm"));
+        assert!(!mixer.contains_key("input_monitor"));
+
+        // Files written by older versions may still contain these keys; ignore them on input.
+        mixer.insert("record_arm".into(), serde_json::Value::Bool(true));
+        mixer.insert("input_monitor".into(), serde_json::Value::Bool(true));
+        let loaded = Session::from_json(&value.to_string()).unwrap();
+        let track = loaded.track(t).unwrap();
+        assert!(track.mixer.mute, "persistent mixer state still loads");
+        assert!(!track.mixer.record_arm);
+        assert!(!track.mixer.input_monitor);
+    }
+
+    #[test]
     fn video_clip_round_trips_and_old_sessions_load() {
         let mut s = Session::default();
         let t = s.add_track(TrackKind::Video, ChannelFormat::Mono, None);
@@ -806,6 +830,7 @@ mod tests {
             frame_rate: 23.976,
             duration: 12.5,
             codec: "prores".into(),
+            offline: None,
         });
         let cid = s.new_clip_id();
         if let Some(p) = s.track_mut(t).and_then(Track::playlist_mut) {
@@ -858,6 +883,17 @@ mod tests {
         v["tempo"]["tempos"] = serde_json::json!([{"tick": 0, "bpm": 4e9}]);
         let s = Session::from_json(&v.to_string()).unwrap();
         assert_eq!((s.sample_rate, s.tempo), (SampleRate::HZ_48000, TempoMap::default()));
+    }
+
+    #[test]
+    fn a_meter_change_far_beyond_the_position_range_is_dropped_on_load() {
+        let mut v = serde_json::to_value(Session::default()).unwrap();
+        v["tempo"]["meters"] = serde_json::json!([
+            {"tick": 0, "numerator": 4, "denominator": 4},
+            {"tick": i64::MAX, "numerator": 3, "denominator": 4}
+        ]);
+        let s = Session::from_json(&v.to_string()).unwrap();
+        assert_eq!(s.parse_position("2|1|000", TimeFormat::BarsBeats), Ok(96_000));
     }
 
     #[test]

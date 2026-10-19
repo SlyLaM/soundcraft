@@ -141,6 +141,7 @@ mod tests {
             frame_rate: 24.0,
             duration: 1.0,
             codec: "test".into(),
+            offline: None,
         });
         e.session_mut().track_mut(track).unwrap().playlist_mut().unwrap().clips.push(Clip::video(clip, "Picture", source, 0, 0, 48_000));
         assert_eq!(e.execute("session.media_status", &json!({})).unwrap()["timeline_online"], true);

@@ -283,15 +283,17 @@ fn load_preset(e: &mut Engine, p: &Value) -> Result<Value> {
     let s = e.session_mut();
     for t in &tracks {
         if let Some(tr) = s.track_mut(*t) {
-            // Routing is session-specific: keep the track's own input/output, VCA and arm state.
-            let keep = (tr.mixer.input.clone(), tr.mixer.output.clone(), tr.mixer.vca, tr.mixer.record_arm, tr.mixer.pan.clone());
+            // Routing and live input state are track-specific: a preset must not replace them.
+            let keep =
+                (tr.mixer.input.clone(), tr.mixer.output.clone(), tr.mixer.vca, tr.mixer.record_arm, tr.mixer.input_monitor, tr.mixer.pan.clone());
             tr.mixer = mixer.clone();
             tr.mixer.input = keep.0;
             tr.mixer.output = keep.1;
             tr.mixer.vca = keep.2;
             tr.mixer.record_arm = keep.3;
-            if tr.mixer.pan.len() != keep.4.len() {
-                tr.mixer.pan = keep.4;
+            tr.mixer.input_monitor = keep.4;
+            if tr.mixer.pan.len() != keep.5.len() {
+                tr.mixer.pan = keep.5;
             }
             if tr.kind == TrackKind::Instrument && instrument.is_some() {
                 tr.instrument = instrument.clone();
@@ -382,6 +384,10 @@ fn write_rtp(e: &mut Engine, p: &Value) -> Result<Value> {
                 n.length = ((n.length as f64 * r.duration_pct / 100.0).round() as i64).max(1);
                 n.start = n.start.saturating_add(r.delay_ticks).max(0);
                 notes += 1;
+            }
+            // Playback delays controller events too, but ignores those before tick 0 (hidden by a start trim).
+            for c in sequence.ctrls.iter_mut().filter(|c| c.tick >= 0) {
+                c.tick = c.tick.saturating_add(r.delay_ticks).max(0);
             }
             sequence.sort();
         }
@@ -608,10 +614,13 @@ mod tests {
         e.execute("edit.select", &json!({"tracks": ["Bass"]})).unwrap();
         e.execute("track.save_preset", &json!({"path": path})).unwrap();
         e.execute("edit.select", &json!({"tracks": ["Hats"]})).unwrap();
+        e.execute("mix.record_arm", &json!({"value": true})).unwrap();
+        e.execute("mix.input_monitor", &json!({"value": true})).unwrap();
         e.execute("track.load_preset", &json!({"path": path})).unwrap();
         let hats = e.session().track_by_name("Hats").unwrap();
         assert_eq!(hats.mixer.inserts[0].as_ref().map(|i| i.plugin.as_str()), Some("compressor"));
         assert_eq!(hats.mixer.volume_db, -5.0);
+        assert!(hats.mixer.record_arm && hats.mixer.input_monitor, "loading a preset keeps live input state");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -633,6 +642,31 @@ mod tests {
         assert_eq!(after.pitch, before.pitch + 12);
         assert_eq!(after.velocity, before.velocity - 10);
         assert!(!e.session().edit.values.keys().any(|k| k.starts_with(&format!("rtp.{}.", keys.0))));
+    }
+
+    #[test]
+    fn rtp_delay_shifts_controller_events() {
+        use soundcraft_midi::{CtrlEvent, CtrlKind};
+        let mut e = crate::demo::demo_engine();
+        let keys = e.session().track_by_name("Keys").unwrap().id;
+        let s = e.session_mut();
+        if let Some(pl) = s.track_mut(keys).and_then(Track::playlist_mut)
+            && let ClipContent::Midi { sequence } = &mut pl.clips[0].content
+        {
+            sequence.ctrls.clear();
+            sequence.ctrls.push(CtrlEvent { tick: 100, channel: 0, kind: CtrlKind::Cc(7), value: 90 });
+            sequence.ctrls.push(CtrlEvent { tick: 200, channel: 0, kind: CtrlKind::PitchBend, value: 10 });
+            sequence.ctrls.push(CtrlEvent { tick: -30, channel: 0, kind: CtrlKind::Cc(1), value: 5 });
+        }
+        s.edit.values.insert(track_key("rtp", keys, "delay"), 50.0);
+        e.execute("edit.select", &json!({"tracks": [keys.0]})).unwrap();
+        e.execute("track.write_midi_rtp", &json!({})).unwrap();
+        let ClipContent::Midi { sequence } = &e.session().track(keys).unwrap().clips()[0].content else { panic!() };
+        let tick_of = |k: CtrlKind| sequence.ctrls.iter().find(|c| c.kind == k).map(|c| c.tick);
+        assert_eq!(tick_of(CtrlKind::Cc(7)), Some(150), "playback delayed the CC by 50 ticks; baked result must match");
+        assert_eq!(tick_of(CtrlKind::PitchBend), Some(250));
+        // Hidden by a start trim: playback ignores it, so baking leaves it alone.
+        assert_eq!(tick_of(CtrlKind::Cc(1)), Some(-30));
     }
 
     #[test]
