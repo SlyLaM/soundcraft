@@ -155,6 +155,9 @@ fn tools(app: &mut SoundApp, ui: &mut Ui) {
     group(ui, 268.0 + 38.0, 52.0, |ui, r| {
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing = vec2(2.0, 3.0);
+            let mut zoom_rect = None;
+            let mut smart_rect = None;
+            let mut scrubber_rect = None;
             let row = ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
                 if icon_button(ui, vec2(36.0, 26.0), "zoom_toggle", app.engine.session().edit.zoom_toggle.is_some(), "Zoom Toggle (E)").clicked() {
@@ -168,10 +171,24 @@ fn tools(app: &mut SoundApp, ui: &mut Ui) {
                     (Tool::Scrubber, "scrubber"),
                     (Tool::Pencil, "pencil"),
                 ] {
+                    if tool == Tool::Trim {
+                        ui.add_space(6.0);
+                    }
                     let smart_member = cur == Tool::Smart && matches!(tool, Tool::Trim | Tool::Selector | Tool::Grabber);
                     let tip = format!("{}{}", tool.label(), tool.fkey().map(|k| format!(" ({k})")).unwrap_or_default());
-                    if icon_button(ui, vec2(36.0, 26.0), icon, cur == tool || smart_member, &tip).clicked() {
+                    let response = icon_button(ui, vec2(36.0, 26.0), icon, cur == tool || smart_member, &tip);
+                    if tool == Tool::Zoom {
+                        zoom_rect = Some(response.rect);
+                    } else if matches!(tool, Tool::Trim | Tool::Selector | Tool::Grabber) {
+                        smart_rect = Some(smart_rect.map_or(response.rect, |rect: Rect| rect.union(response.rect)));
+                    } else if tool == Tool::Scrubber {
+                        scrubber_rect = Some(response.rect);
+                    }
+                    if response.clicked() {
                         let _ = app.run("edit.tool", json!({"tool": tool.id()}));
+                    }
+                    if tool == Tool::Grabber {
+                        ui.add_space(6.0);
                     }
                 }
             });
@@ -179,14 +196,15 @@ fn tools(app: &mut SoundApp, ui: &mut Ui) {
             // Trim/Selector/Grabber. Each visible edge is clickable without taking the centers
             // away from the individual tool buttons.
             let rr = row.response.rect;
-            let bx0 = rr.min.x + 76.0;
-            let bx1 = bx0 + 38.0 * 3.0 - 2.0;
-            let outline = Rect::from_min_max(pos2(bx0, r.min.y + 1.0), pos2(bx1, rr.max.y + 2.0));
+            let (Some(zoom_rect), Some(smart_rect), Some(scrubber_rect)) = (zoom_rect, smart_rect, scrubber_rect) else {
+                return;
+            };
+            let outline = Rect::from_min_max(pos2(smart_rect.min.x, r.min.y + 1.0), pos2(smart_rect.max.x, rr.max.y + 2.0));
             // Keep the bracket hit targets outside the member buttons. Otherwise the later
             // interactions win egui's hit test and make the covered button edges select Smart.
-            let top_hit = Rect::from_min_max(outline.min, pos2(outline.max.x, rr.min.y - 0.5));
-            let left_hit = Rect::from_min_max(pos2(bx0 - 2.0, outline.min.y), pos2(bx0 - 0.5, outline.max.y));
-            let right_hit = Rect::from_min_max(pos2(bx1 + 0.5, outline.min.y), pos2(bx1 + 2.0, outline.max.y));
+            let top_hit = Rect::from_min_max(pos2(outline.min.x, r.min.y - 3.0), pos2(outline.max.x, smart_rect.min.y - 0.5));
+            let left_hit = Rect::from_min_max(pos2(zoom_rect.max.x + 0.5, outline.min.y), pos2(smart_rect.min.x - 0.5, outline.max.y));
+            let right_hit = Rect::from_min_max(pos2(smart_rect.max.x + 0.5, outline.min.y), pos2(scrubber_rect.min.x - 0.5, outline.max.y));
             let tip = "Smart Tool (hold any two of F6, F7 and F8)";
             let top = ui.interact(top_hit, ui.id().with("smart"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip);
             let left =

@@ -311,6 +311,9 @@ pub struct SoundApp {
     theme_applied: Option<bool>,
     /// Last panel host context, used to cancel renderer-owned gestures on explicit replacement.
     pub(crate) docking_context: Option<egui::Context>,
+    /// Physical F6–F8 state before the current frame, used to preserve Smart Tool chords when
+    /// one key is pressed and another is released in the same input batch.
+    pub(crate) smart_tool_keys_down: u8,
     /// Transport simulation when there is no player (tests, offscreen renders).
     sim: Option<(Samples, Option<Samples>, Option<Range>)>,
     /// When Record last found nothing to record on, and why: the Record buttons show it for a moment.
@@ -393,6 +396,7 @@ impl SoundApp {
             fonts_installed: false,
             theme_applied: None,
             docking_context: None,
+            smart_tool_keys_down: 0,
             sim: None,
             record_hint: None,
             quit_requested: false,

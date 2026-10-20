@@ -118,7 +118,8 @@ fn toolbar_keyboard_activation_changes_tools_without_transport_or_marker_actions
     assert_eq!(h.state().engine.session().edit.tool, soundcraft_model::Tool::Trim);
     let smart = h.get_by_label("Smart Tool").rect();
     let selector = h.get_by_label("Selector (F7)").rect();
-    assert!(smart.width() >= 110.0 && smart.max.y <= selector.min.y, "Smart Tool top target overlaps Selector: {smart:?} vs {selector:?}");
+    assert!(smart.width() >= 110.0 && smart.height() >= 7.0, "Smart Tool top target is too small: {smart:?}");
+    assert!(smart.max.y <= selector.min.y, "Smart Tool top target overlaps Selector: {smart:?} vs {selector:?}");
     h.get_by_label("Smart Tool").click();
     h.run_steps(3);
     assert_eq!(h.state().engine.session().edit.tool, soundcraft_model::Tool::Smart);
@@ -136,7 +137,7 @@ fn toolbar_keyboard_activation_changes_tools_without_transport_or_marker_actions
         h.run_steps(2);
         assert_eq!(h.state().engine.session().edit.tool, tool, "individual tool edge at {edge:?}");
     }
-    for (button, x) in [("Trim (F6)", -1.0), ("Grabber (F8)", 1.0)] {
+    for (button, x) in [("Trim (F6)", -4.0), ("Grabber (F8)", 4.0)] {
         h.get_by_label("Selector (F7)").click();
         h.run_steps(2);
         let rect = h.get_by_label(button).rect();
