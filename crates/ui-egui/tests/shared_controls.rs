@@ -117,10 +117,25 @@ fn toolbar_keyboard_activation_changes_tools_without_transport_or_marker_actions
     h.run_steps(3);
     assert_eq!(h.state().engine.session().edit.tool, soundcraft_model::Tool::Trim);
     let smart = h.get_by_label("Smart Tool").rect();
-    assert!(smart.width() >= 110.0 && smart.height() >= 14.0, "Smart Tool hit target is {smart:?}");
+    let selector = h.get_by_label("Selector (F7)").rect();
+    assert!(smart.width() >= 110.0 && smart.max.y <= selector.min.y, "Smart Tool top target overlaps Selector: {smart:?} vs {selector:?}");
     h.get_by_label("Smart Tool").click();
     h.run_steps(3);
     assert_eq!(h.state().engine.session().edit.tool, soundcraft_model::Tool::Smart);
+    for (button, x, tool) in [
+        ("Trim (F6)", 1.0, soundcraft_model::Tool::Trim),
+        ("Selector (F7)", 18.0, soundcraft_model::Tool::Selector),
+        ("Grabber (F8)", 35.0, soundcraft_model::Tool::Grabber),
+    ] {
+        let rect = h.get_by_label(button).rect();
+        let edge = pos2(rect.left() + x, rect.top() + 1.0);
+        h.event(Event::PointerMoved(edge));
+        h.event(pointer(edge, true));
+        h.run_steps(1);
+        h.event(pointer(edge, false));
+        h.run_steps(2);
+        assert_eq!(h.state().engine.session().edit.tool, tool, "individual tool edge at {edge:?}");
+    }
     for (button, x) in [("Trim (F6)", -1.0), ("Grabber (F8)", 1.0)] {
         h.get_by_label("Selector (F7)").click();
         h.run_steps(2);

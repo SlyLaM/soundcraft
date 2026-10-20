@@ -181,10 +181,12 @@ fn tools(app: &mut SoundApp, ui: &mut Ui) {
             let rr = row.response.rect;
             let bx0 = rr.min.x + 76.0;
             let bx1 = bx0 + 38.0 * 3.0 - 2.0;
-            let outline = Rect::from_min_max(pos2(bx0 - 3.0, r.min.y + 1.0), pos2(bx1 + 3.0, rr.max.y + 2.0));
-            let top_hit = Rect::from_min_max(outline.min, pos2(outline.max.x, rr.min.y + 10.0));
-            let left_hit = Rect::from_min_max(outline.min, pos2(outline.min.x + 9.0, outline.max.y));
-            let right_hit = Rect::from_min_max(pos2(outline.max.x - 9.0, outline.min.y), outline.max);
+            let outline = Rect::from_min_max(pos2(bx0, r.min.y + 1.0), pos2(bx1, rr.max.y + 2.0));
+            // Keep the bracket hit targets outside the member buttons. Otherwise the later
+            // interactions win egui's hit test and make the covered button edges select Smart.
+            let top_hit = Rect::from_min_max(outline.min, pos2(outline.max.x, rr.min.y - 0.5));
+            let left_hit = Rect::from_min_max(pos2(bx0 - 2.0, outline.min.y), pos2(bx0 - 0.5, outline.max.y));
+            let right_hit = Rect::from_min_max(pos2(bx1 + 0.5, outline.min.y), pos2(bx1 + 2.0, outline.max.y));
             let tip = "Smart Tool (hold any two of F6, F7 and F8)";
             let top = ui.interact(top_hit, ui.id().with("smart"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip);
             let left =
