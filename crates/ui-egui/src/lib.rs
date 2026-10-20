@@ -103,7 +103,8 @@ pub struct UiState {
     pub show_preferences: bool,
     pub preferences_page: preferences::PreferencesPage,
     pub preferences_window_pos: Option<[f32; 2]>,
-    pub preferences_window_size: [f32; 2],
+    pub reduce_visual_effects: preferences::ReduceVisualEffects,
+    pub undo_levels: usize,
     /// The audio device choice (Setup › Playback Engine), kept with the preferences: per machine.
     pub audio: soundcraft_playback::AudioConfig,
     /// The Mix window lives in its own native window (Window › Mix in Separate Window); the main
@@ -174,7 +175,8 @@ impl Default for UiState {
             show_preferences: false,
             preferences_page: preferences::PreferencesPage::default(),
             preferences_window_pos: None,
-            preferences_window_size: [960.0, 700.0],
+            reduce_visual_effects: preferences::ReduceVisualEffects::default(),
+            undo_levels: 64,
             audio: soundcraft_playback::AudioConfig::default(),
             mix_separate: false,
             show_io_setup: false,
@@ -1150,6 +1152,8 @@ impl SoundApp {
         if ctx.current_pass_index() > 0 {
             return;
         }
+        self.ui.undo_levels = self.ui.undo_levels.clamp(1, 64);
+        self.engine.set_history_limit(self.ui.undo_levels);
         // Fonts set now take effect next frame, so draw only from the frame after.
         if !self.fonts_ready {
             if self.fonts_installed {
@@ -1544,6 +1548,8 @@ mod tests {
     fn preferences_saved_before_the_window_was_remembered_keep_full_scale() {
         let ui: super::UiState = serde_json::from_value(json!({"show_transport": true})).unwrap();
         assert_eq!((ui.window_size, ui.window_maximized, ui.ui_scale), ([1600.0, 1000.0], false, 1.0));
+        assert_eq!(ui.reduce_visual_effects, crate::preferences::ReduceVisualEffects::Never);
+        assert_eq!(ui.undo_levels, 64);
     }
 
     #[test]

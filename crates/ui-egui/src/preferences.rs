@@ -22,6 +22,44 @@ pub enum PreferencesPage {
     Synchronization,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReduceVisualEffects {
+    #[default]
+    Never,
+    Playback,
+    Always,
+}
+
+impl ReduceVisualEffects {
+    pub const ALL: [Self; 3] = [Self::Never, Self::Playback, Self::Always];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Never => "Never",
+            Self::Playback => "Only During Playback",
+            Self::Always => "Always",
+        }
+    }
+
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Never => "never",
+            Self::Playback => "playback",
+            Self::Always => "always",
+        }
+    }
+
+    pub fn parse(id: &str) -> Option<Self> {
+        match id {
+            "never" => Some(Self::Never),
+            "playback" => Some(Self::Playback),
+            "always" => Some(Self::Always),
+            _ => None,
+        }
+    }
+}
+
 impl PreferencesPage {
     pub const ALL: [Self; 9] = [
         Self::Display,
@@ -67,6 +105,8 @@ impl PreferencesPage {
 #[derive(Debug, Clone, Copy)]
 struct PreferencesDraft {
     theme: ThemeMode,
+    reduce_visual_effects: ReduceVisualEffects,
+    undo_levels: usize,
 }
 
 #[derive(Debug, Default)]
@@ -79,24 +119,36 @@ pub struct PreferencesState {
 enum Control {
     Check(&'static str),
     Choice(&'static str, &'static str),
+    ChoiceOptions(&'static str, &'static str, &'static [&'static str]),
     Value(&'static str, &'static str),
     Button(&'static str),
     Radios(&'static str, &'static [&'static str]),
     Theme,
+    ReduceVisualEffects,
+    UndoLevels,
 }
 
 impl Control {
     const fn label(self) -> &'static str {
         match self {
-            Self::Check(label) | Self::Button(label) | Self::Choice(label, _) | Self::Value(label, _) | Self::Radios(label, _) => label,
+            Self::Check(label)
+            | Self::Button(label)
+            | Self::Choice(label, _)
+            | Self::ChoiceOptions(label, _, _)
+            | Self::Value(label, _)
+            | Self::Radios(label, _) => label,
             Self::Theme => "UI Theme",
+            Self::ReduceVisualEffects => "Reduce Visual Effects",
+            Self::UndoLevels => "Levels of Undo",
         }
     }
 
     fn search_text(self) -> String {
         match self {
             Self::Choice(label, value) | Self::Value(label, value) => format!("{label} {value}"),
+            Self::ChoiceOptions(label, value, values) => format!("{label} {value} {}", values.join(" ")),
             Self::Radios(label, values) => format!("{label} {}", values.join(" ")),
+            Self::ReduceVisualEffects => format!("{} Never Only During Playback Always", self.label()),
             _ => self.label().to_string(),
         }
     }
@@ -122,7 +174,7 @@ const DISPLAY: &[Section] = &[
             Control::Choice("Language", "English"),
             Control::Check("Default Automatic Naming to English"),
             Control::Theme,
-            Control::Choice("Reduce Visual Effects", "Never"),
+            Control::ReduceVisualEffects,
         ],
     },
     Section {
@@ -301,7 +353,7 @@ const EDITING: &[Section] = &[
             Control::Check("Marker Target Follows First Selected Track"),
         ],
     },
-    Section { title: "Undo", controls: &[Control::Value("Levels of Undo", "64")] },
+    Section { title: "Undo", controls: &[Control::UndoLevels] },
 ];
 
 const MIXING: &[Section] = &[
@@ -400,9 +452,8 @@ const METERING: &[Section] = &[
         title: "Track and Master Meter Types",
         controls: &[
             Control::Check("Track and Master Meter Types Linked"),
-            Control::Radios("Available Meter Types", METER_TYPES),
-            Control::Choice("Track Meters", "Digital VU"),
-            Control::Choice("Master Meters", "Linear"),
+            Control::ChoiceOptions("Track Meters", "Digital VU", METER_TYPES),
+            Control::ChoiceOptions("Master Meters", "Linear", METER_TYPES),
         ],
     },
     Section {
@@ -588,7 +639,11 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
         return;
     }
 
-    let mut draft = app.preferences.draft.unwrap_or(PreferencesDraft { theme: app.ui.theme });
+    let mut draft = app.preferences.draft.unwrap_or(PreferencesDraft {
+        theme: app.ui.theme,
+        reduce_visual_effects: app.ui.reduce_visual_effects,
+        undo_levels: app.ui.undo_levels,
+    });
     let mut search = std::mem::take(&mut app.preferences.search);
     let mut page = app.ui.preferences_page;
     let mut action = None;
@@ -606,9 +661,8 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
         .open(&mut open)
         .order(egui::Order::Foreground)
         .collapsible(false)
-        .resizable(true)
-        .default_size(vec2(app.ui.preferences_window_size[0], app.ui.preferences_window_size[1]))
-        .min_size(vec2(780.0, 520.0));
+        .resizable(false)
+        .fixed_size(vec2(960.0, 700.0));
     if let Some([x, y]) = app.ui.preferences_window_pos {
         window = window.default_pos(egui::pos2(x, y));
     }
@@ -645,9 +699,8 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
     });
     if let Some(shown) = shown {
         let rect = shown.response.rect;
-        if rect.min.x.is_finite() && rect.min.y.is_finite() && rect.width().is_finite() && rect.height().is_finite() {
+        if rect.min.x.is_finite() && rect.min.y.is_finite() {
             app.ui.preferences_window_pos = Some([rect.min.x, rect.min.y]);
-            app.ui.preferences_window_size = [rect.width(), rect.height()];
         }
     }
 
@@ -663,6 +716,8 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
     match action {
         Some(Action::Apply) => {
             let _ = app.run("ui.theme", json!({"mode": draft.theme.id()}));
+            let _ = app.run("ui.reduce_visual_effects", json!({"mode": draft.reduce_visual_effects.id()}));
+            let _ = app.run("ui.undo_levels", json!({"levels": draft.undo_levels}));
             open = false;
             app.preferences.draft = None;
             app.preferences.search.clear();
@@ -747,11 +802,27 @@ fn control_ui(ui: &mut egui::Ui, page: PreferencesPage, section: &str, index: us
                 });
             });
         }
+        Control::ReduceVisualEffects => {
+            ui.horizontal(|ui| {
+                ui.label(label("Reduce Visual Effects"));
+                egui::ComboBox::from_id_salt(id).selected_text(draft.reduce_visual_effects.label()).show_ui(ui, |ui| {
+                    for mode in ReduceVisualEffects::ALL {
+                        ui.selectable_value(&mut draft.reduce_visual_effects, mode, mode.label());
+                    }
+                });
+            });
+        }
+        Control::UndoLevels => {
+            ui.horizontal(|ui| {
+                ui.label(label("Levels of Undo"));
+                ui.add(egui::DragValue::new(&mut draft.undo_levels).range(1..=64));
+            });
+        }
         Control::Check(text) => {
             let mut value = false;
             ui.add_enabled(false, egui::Checkbox::new(&mut value, label(text))).on_disabled_hover_text("This preference is not available yet.");
         }
-        Control::Choice(text, value) => {
+        Control::Choice(text, value) | Control::ChoiceOptions(text, value, _) => {
             ui.add_enabled_ui(false, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(label(text));
@@ -842,13 +913,23 @@ mod tests {
     }
 
     #[test]
-    fn applying_the_only_live_preference_uses_its_ui_command() {
+    fn applying_live_preferences_uses_ui_commands_without_dirtying_the_session() {
         let mut app = SoundApp::new(Engine::default(), None, crate::Services::default());
         assert_eq!(app.ui.theme, ThemeMode::Dark);
-        let draft = PreferencesDraft { theme: ThemeMode::Light };
-        assert!(app.run("ui.theme", json!({"mode": draft.theme.id()})).is_ok());
+        assert!(app.run("ui.theme", json!({"mode": ThemeMode::Light.id()})).is_ok());
+        assert!(app.run("ui.reduce_visual_effects", json!({"mode": "playback"})).is_ok());
+        assert!(app.run("ui.undo_levels", json!({"levels": 32})).is_ok());
         assert_eq!(app.ui.theme, ThemeMode::Light);
+        assert_eq!(app.ui.reduce_visual_effects, ReduceVisualEffects::Playback);
+        assert_eq!((app.ui.undo_levels, app.engine.history_limit), (32, 32));
         assert!(!app.engine.is_dirty());
+    }
+
+    #[test]
+    fn live_preferences_reject_or_clamp_hostile_values() {
+        let mut app = SoundApp::new(Engine::default(), None, crate::Services::default());
+        assert!(app.run("ui.reduce_visual_effects", json!({"mode": "sometimes"})).is_err());
+        assert_eq!(app.run("ui.undo_levels", json!({"levels": 10_000})).unwrap()["levels"], 64);
     }
 
     #[test]
