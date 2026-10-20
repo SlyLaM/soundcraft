@@ -231,6 +231,9 @@ pub fn menu_bar(app: &mut SoundApp, ui: &mut egui::Ui) {
                     if ui.button("About SoundCraft").clicked() {
                         app.ui.show_about = true;
                     }
+                    if ui.button("Preferences...").clicked() {
+                        let _ = app.run("setup.preferences", json!({"value": true}));
+                    }
                     if ui.button("Session Info").clicked() {
                         app.ui.show_session_info = true;
                     }

@@ -1,4 +1,4 @@
-//! Setup › Preferences: the complete settings surface, including placeholders for features whose
+//! SoundCraft / Setup › Preferences: the complete settings surface, including placeholders for features whose
 //! underlying behaviour does not exist yet. A placeholder is never interactive: enabling a row
 //! requires a real command and persistence policy first.
 
@@ -943,6 +943,8 @@ fn text_matches(text: &str, search: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
     use soundcraft_engine::Engine;
 
     #[test]
@@ -981,6 +983,24 @@ mod tests {
         let mut app = SoundApp::new(Engine::default(), None, crate::Services::default());
         assert_eq!(app.run("setup.preferences", json!({"value": true})), Ok(json!({"value": true})));
         assert!(app.ui.show_preferences);
+    }
+
+    #[test]
+    fn soundcraft_menu_opens_preferences_through_the_same_command() {
+        let app = SoundApp::new(Engine::default(), None, crate::Services::default());
+        let mut harness = Harness::builder().with_size(egui::vec2(1600.0, 1000.0)).build_ui_state(
+            |ui, app: &mut SoundApp| {
+                app.logic(&ui.ctx().clone());
+                app.ui(ui);
+            },
+            app,
+        );
+        harness.run_steps(4);
+        harness.get_by_label("SoundCraft").click();
+        harness.run_steps(2);
+        harness.get_by_label("Preferences...").click();
+        harness.run_steps(2);
+        assert!(harness.state().ui.show_preferences);
     }
 
     #[test]
