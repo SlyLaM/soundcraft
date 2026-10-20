@@ -7,6 +7,8 @@ use crate::theme::{ThemeMode, Tokens};
 use egui::{Key, Modifiers, RichText, Stroke, vec2};
 use serde_json::json;
 
+const PREFERENCES_BODY_HEIGHT: f32 = 800.0;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PreferencesPage {
@@ -662,7 +664,7 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
         .order(egui::Order::Foreground)
         .collapsible(false)
         .resizable(false)
-        .fixed_size(vec2(900.0, 860.0));
+        .fixed_size(vec2(900.0, 945.0));
     if let Some([x, y]) = app.ui.preferences_window_pos {
         window = window.default_pos(egui::pos2(x, y));
     }
@@ -681,7 +683,12 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
         tabs(ui, &mut page, &search);
         ui.separator();
 
+        // `Window::fixed_size` prevents edge dragging, but egui can still shrink the frame to a
+        // short page's content. Reserving the full body keeps every tab at the tallest page's size.
+        let body_top = ui.cursor().top();
         page_body(ui, page, &search, &mut draft);
+        let used_height = ui.cursor().top() - body_top;
+        ui.add_space((PREFERENCES_BODY_HEIGHT - used_height).max(0.0));
 
         ui.separator();
         ui.horizontal(|ui| {
