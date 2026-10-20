@@ -662,7 +662,7 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
         .order(egui::Order::Foreground)
         .collapsible(false)
         .resizable(false)
-        .fixed_size(vec2(960.0, 700.0));
+        .fixed_size(vec2(900.0, 860.0));
     if let Some([x, y]) = app.ui.preferences_window_pos {
         window = window.default_pos(egui::pos2(x, y));
     }
@@ -681,10 +681,7 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
         tabs(ui, &mut page, &search);
         ui.separator();
 
-        let body_height = (ui.available_height() - 42.0).max(120.0);
-        egui::ScrollArea::vertical().id_salt("preferences_body").max_height(body_height).show(ui, |ui| {
-            page_body(ui, page, &search, &mut draft);
-        });
+        page_body(ui, page, &search, &mut draft);
 
         ui.separator();
         ui.horizontal(|ui| {
@@ -753,6 +750,11 @@ fn tabs(ui: &mut egui::Ui, page: &mut PreferencesPage, search: &str) {
 }
 
 fn page_body(ui: &mut egui::Ui, page: PreferencesPage, search: &str, draft: &mut PreferencesDraft) {
+    if page == PreferencesPage::Mixing {
+        mixing_page_body(ui, search, draft);
+        return;
+    }
+
     let sections = page.sections();
     ui.columns(2, |columns| {
         for (index, section) in sections.iter().enumerate() {
@@ -763,7 +765,28 @@ fn page_body(ui: &mut egui::Ui, page: PreferencesPage, search: &str, draft: &mut
     });
 }
 
+fn mixing_page_body(ui: &mut egui::Ui, search: &str, draft: &mut PreferencesDraft) {
+    ui.columns(2, |columns| {
+        section_ui(&mut columns[0], PreferencesPage::Mixing, MIXING[0], search, draft);
+        section_ui(&mut columns[1], PreferencesPage::Mixing, MIXING[1], search, draft);
+    });
+    ui.add_space(6.0);
+    section_ui_columns(ui, PreferencesPage::Mixing, MIXING[2], 11, search, draft);
+    ui.add_space(6.0);
+    section_ui_columns(ui, PreferencesPage::Mixing, MIXING[3], 1, search, draft);
+    ui.add_space(6.0);
+    section_ui_columns(ui, PreferencesPage::Mixing, MIXING[4], 5, search, draft);
+}
+
 fn section_ui(ui: &mut egui::Ui, page: PreferencesPage, section: Section, search: &str, draft: &mut PreferencesDraft) {
+    section_frame(ui, section, search, |ui| {
+        for (index, control) in section.controls.iter().copied().enumerate() {
+            control_ui(ui, page, section.title, index, control, search, draft);
+        }
+    });
+}
+
+fn section_frame(ui: &mut egui::Ui, section: Section, search: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
     let t = Tokens::current();
     let section_hit = text_matches(section.title, search);
     let stroke = if !search.is_empty() && section_hit { Stroke::new(1.5, t.meter_yellow) } else { Stroke::new(1.0, t.border) };
@@ -778,9 +801,21 @@ fn section_ui(ui: &mut egui::Ui, page: PreferencesPage, section: Section, search
             ui.label(title);
         });
         ui.add_space(3.0);
-        for (index, control) in section.controls.iter().copied().enumerate() {
-            control_ui(ui, page, section.title, index, control, search, draft);
-        }
+        add_contents(ui);
+    });
+}
+
+fn section_ui_columns(ui: &mut egui::Ui, page: PreferencesPage, section: Section, split_at: usize, search: &str, draft: &mut PreferencesDraft) {
+    section_frame(ui, section, search, |ui| {
+        let split_at = split_at.min(section.controls.len());
+        ui.columns(2, |columns| {
+            for (index, control) in section.controls[..split_at].iter().copied().enumerate() {
+                control_ui(&mut columns[0], page, section.title, index, control, search, draft);
+            }
+            for (offset, control) in section.controls[split_at..].iter().copied().enumerate() {
+                control_ui(&mut columns[1], page, section.title, split_at + offset, control, search, draft);
+            }
+        });
     });
 }
 
@@ -850,7 +885,7 @@ fn control_ui(ui: &mut egui::Ui, page: PreferencesPage, section: &str, index: us
             ui.add_enabled_ui(false, |ui| {
                 ui.label(label(text));
                 let mut selected = 0usize;
-                ui.horizontal_wrapped(|ui| {
+                ui.indent(id, |ui| {
                     for (value_index, value) in values.iter().enumerate() {
                         ui.radio_value(&mut selected, value_index, *value);
                     }
