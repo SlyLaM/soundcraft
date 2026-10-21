@@ -103,6 +103,7 @@ fn tool_and_record_buttons_handle_keyboard_disabled_state_and_cancelled_clicks()
 }
 
 #[test]
+/// Tool buttons, the surrounding Smart target, and focused controls dispatch only their actions.
 fn toolbar_keyboard_activation_changes_tools_without_transport_or_marker_actions() {
     let app = SoundApp::new(soundcraft_engine::Engine::default(), None, Services::default());
     let mut h = Harness::builder().with_size(vec2(1600.0, 1000.0)).build_ui_state(
@@ -118,7 +119,7 @@ fn toolbar_keyboard_activation_changes_tools_without_transport_or_marker_actions
     assert_eq!(h.state().engine.session().edit.tool, soundcraft_model::Tool::Trim);
     let smart = h.get_by_label("Smart Tool").rect();
     let selector = h.get_by_label("Selector (F7)").rect();
-    assert!(smart.width() >= 110.0 && smart.height() >= 7.0, "Smart Tool top target is too small: {smart:?}");
+    assert!(smart.width() >= 130.0 && smart.height() >= 7.0, "Smart Tool top target is too small: {smart:?}");
     assert!(smart.max.y <= selector.min.y, "Smart Tool top target overlaps Selector: {smart:?} vs {selector:?}");
     h.get_by_label("Smart Tool").click();
     h.run_steps(3);

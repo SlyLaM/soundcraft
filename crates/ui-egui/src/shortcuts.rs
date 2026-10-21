@@ -5,6 +5,9 @@ use crate::{MainWindow, SoundApp};
 use egui::{Key, Modifiers};
 use serde_json::json;
 
+/// A short grace period keeps the first member of an F6–F8 chord from flashing on screen.
+const SMART_TOOL_CHORD_GRACE_SECONDS: f64 = 0.045;
+
 /// Parse "Cmd+Shift+X" style strings. Returns None for descriptive ones ("F1-F4", "Plus/Minus").
 pub fn parse(s: &str) -> Option<(Modifiers, Key)> {
     let mut m = Modifiers::NONE;
@@ -231,8 +234,9 @@ fn fixed(app: &mut SoundApp, key: Key, m: Modifiers, mac: bool) -> bool {
 /// the frame, so it loses a chord when a second key press precedes the first key's release in the
 /// same batch.
 fn smart_tool_events(app: &mut SoundApp, ctx: &egui::Context, enabled: bool) {
-    let events = ctx.input(|input| input.events.clone());
+    let (events, now) = ctx.input(|input| (input.events.clone(), input.time));
     let mut held = app.smart_tool_keys_down;
+    let mut released_tool_key = false;
     for event in events {
         let egui::Event::Key { key, pressed, repeat, modifiers, .. } = event else {
             continue;
@@ -243,11 +247,26 @@ fn smart_tool_events(app: &mut SoundApp, ctx: &egui::Context, enabled: bool) {
         if pressed {
             held |= bit;
             if enabled && !repeat && modifiers.is_none() {
-                select_smart_tool_key(app, key, held);
+                if held & !bit != 0 || released_tool_key {
+                    app.pending_smart_tool_key = None;
+                    select_smart_tool_key(app, key, held);
+                } else {
+                    app.pending_smart_tool_key = Some((key, now));
+                    ctx.request_repaint_after(std::time::Duration::from_secs_f64(SMART_TOOL_CHORD_GRACE_SECONDS));
+                }
             }
         } else {
             held &= !bit;
+            if enabled && app.pending_smart_tool_key.is_some_and(|(pending, _)| pending == key) {
+                apply_pending_smart_tool_key(app);
+            }
+            released_tool_key = true;
         }
+    }
+    if !enabled {
+        app.pending_smart_tool_key = None;
+    } else if app.pending_smart_tool_key.is_some_and(|(_, pressed_at)| now - pressed_at >= SMART_TOOL_CHORD_GRACE_SECONDS) {
+        apply_pending_smart_tool_key(app);
     }
     // Window focus changes can clear egui's key state without producing matching releases.
     app.smart_tool_keys_down = ctx.input(|input| {
@@ -255,12 +274,20 @@ fn smart_tool_events(app: &mut SoundApp, ctx: &egui::Context, enabled: bool) {
     });
 }
 
+/// Return the bit used to track one physical member of the F6–F8 tool-key family.
 fn smart_tool_key_bit(key: Key) -> Option<u8> {
     match key {
         Key::F6 => Some(1),
         Key::F7 => Some(2),
         Key::F8 => Some(4),
         _ => None,
+    }
+}
+
+/// Apply a pending individual tool selection after its chord grace period or key release.
+fn apply_pending_smart_tool_key(app: &mut SoundApp) {
+    if let Some((key, _)) = app.pending_smart_tool_key.take() {
+        select_smart_tool_key(app, key, smart_tool_key_bit(key).unwrap_or_default());
     }
 }
 
@@ -277,7 +304,9 @@ fn select_smart_tool_key(app: &mut SoundApp, pressed: Key, held: u8) {
             _ => "grabber",
         }
     };
-    let _ = app.run("edit.tool", json!({"tool": tool}));
+    if app.engine.session().edit.tool.id() != tool {
+        let _ = app.run("edit.tool", json!({"tool": tool}));
+    }
 }
 
 /// F1–F4 (and Alt+1–4) choose Shuffle, Slip, Spot and Grid; F4 in Grid switches between Absolute and
