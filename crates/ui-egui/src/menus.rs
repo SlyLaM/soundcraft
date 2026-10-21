@@ -578,7 +578,13 @@ pub fn run_ui_command(app: &mut SoundApp, id: &str, p: &Value) -> Option<Result<
         "window.playback_engine" => toggle(&mut app.ui.show_playback_engine),
         // The engine catalog already exposes this command. Handling it here keeps the menu,
         // control channel and scripted callers on the same public command id.
-        "setup.preferences" => toggle(&mut app.ui.show_preferences),
+        "setup.preferences" => {
+            let result = toggle(&mut app.ui.show_preferences);
+            if !app.ui.show_preferences {
+                app.preferences.discard_draft();
+            }
+            result
+        }
         "window.io_setup" => toggle(&mut app.ui.show_io_setup),
         "window.shortcuts" => toggle(&mut app.ui.show_shortcuts),
         "window.color_palette" => toggle(&mut app.ui.show_color_palette),
@@ -632,6 +638,7 @@ pub fn run_ui_command(app: &mut SoundApp, id: &str, p: &Value) -> Option<Result<
             app.ui.show_session_info = false;
             app.ui.show_audio_health = false;
             app.ui.show_preferences = false;
+            app.preferences.discard_draft();
             app.ui.show_automation = false;
             app.ui.plugin_windows.clear();
             app.ui.audiosuite = None;

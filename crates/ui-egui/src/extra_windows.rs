@@ -56,6 +56,7 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
     apply_customization(app, ctx);
 }
 
+/// Applies persisted scale and visual-effects choices when their effective values change.
 fn apply_customization(app: &mut SoundApp, ctx: &egui::Context) {
     let reduce = match app.ui.reduce_visual_effects {
         crate::preferences::ReduceVisualEffects::Never => false,

@@ -7,8 +7,13 @@ use crate::theme::{ThemeMode, Tokens};
 use egui::{Key, Modifiers, RichText, Stroke, vec2};
 use serde_json::json;
 
+const PREFERENCES_WINDOW_WIDTH: f32 = 900.0;
+const PREFERENCES_WINDOW_HEIGHT: f32 = 945.0;
 const PREFERENCES_BODY_HEIGHT: f32 = 800.0;
+const PREFERENCES_SCREEN_MARGIN: f32 = 24.0;
+const PREFERENCES_MIN_HEIGHT: f32 = 320.0;
 
+/// One of the pages exposed by the Preferences window, in shortcut order.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PreferencesPage {
@@ -24,6 +29,7 @@ pub enum PreferencesPage {
     Synchronization,
 }
 
+/// Controls when optional interface animation and decoration are reduced.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReduceVisualEffects {
@@ -36,6 +42,7 @@ pub enum ReduceVisualEffects {
 impl ReduceVisualEffects {
     pub const ALL: [Self; 3] = [Self::Never, Self::Playback, Self::Always];
 
+    /// Returns the text shown for this mode in preference selectors.
     pub const fn label(self) -> &'static str {
         match self {
             Self::Never => "Never",
@@ -44,6 +51,7 @@ impl ReduceVisualEffects {
         }
     }
 
+    /// Returns the stable command and persistence identifier for this mode.
     pub const fn id(self) -> &'static str {
         match self {
             Self::Never => "never",
@@ -52,6 +60,7 @@ impl ReduceVisualEffects {
         }
     }
 
+    /// Parses a command or persistence identifier into a visual-effects mode.
     pub fn parse(id: &str) -> Option<Self> {
         match id {
             "never" => Some(Self::Never),
@@ -75,6 +84,7 @@ impl PreferencesPage {
         Self::Synchronization,
     ];
 
+    /// Returns the page title shown in the tab strip.
     pub const fn label(self) -> &'static str {
         match self {
             Self::Display => "Display",
@@ -89,6 +99,7 @@ impl PreferencesPage {
         }
     }
 
+    /// Returns the static section catalog belonging to this page.
     const fn sections(self) -> &'static [Section] {
         match self {
             Self::Display => DISPLAY,
@@ -104,6 +115,7 @@ impl PreferencesPage {
     }
 }
 
+/// Values edited in the window before the user applies or cancels them.
 #[derive(Debug, Clone, Copy)]
 struct PreferencesDraft {
     theme: ThemeMode,
@@ -111,12 +123,22 @@ struct PreferencesDraft {
     undo_levels: usize,
 }
 
+/// Transient Preferences-window state that is never stored in a session.
 #[derive(Debug, Default)]
 pub struct PreferencesState {
     search: String,
     draft: Option<PreferencesDraft>,
 }
 
+impl PreferencesState {
+    /// Drops unapplied values and search text when the window is closed by any route.
+    pub(crate) fn discard_draft(&mut self) {
+        self.draft = None;
+        self.search.clear();
+    }
+}
+
+/// A declarative preference control, including disabled placeholders without a backend yet.
 #[derive(Clone, Copy)]
 enum Control {
     Check(&'static str),
@@ -131,6 +153,7 @@ enum Control {
 }
 
 impl Control {
+    /// Returns the user-facing name used by the control and search index.
     const fn label(self) -> &'static str {
         match self {
             Self::Check(label)
@@ -145,6 +168,7 @@ impl Control {
         }
     }
 
+    /// Builds the searchable text from a control's label, value and available choices.
     fn search_text(self) -> String {
         match self {
             Self::Choice(label, value) | Self::Value(label, value) => format!("{label} {value}"),
@@ -156,6 +180,7 @@ impl Control {
     }
 }
 
+/// A titled group of controls within a preference page.
 #[derive(Clone, Copy)]
 struct Section {
     title: &'static str,
@@ -633,11 +658,11 @@ enum Action {
     Cancel,
 }
 
+/// Draws the modal Preferences window and applies or discards its staged values.
 pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
     let mut open = app.ui.show_preferences;
     if !open {
-        app.preferences.draft = None;
-        app.preferences.search.clear();
+        app.preferences.discard_draft();
         return;
     }
 
@@ -650,10 +675,15 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
     let mut page = app.ui.preferences_page;
     let mut action = None;
     select_page_from_keyboard(ctx, &mut page);
+    // A single-line text edit releases focus on Enter in the frame that receives the key. Capture
+    // ownership before drawing so Enter in Search cannot also apply and close the window.
+    let typing = ctx.egui_wants_keyboard_input();
 
     // A transparent middle-layer area makes this a modal window without borrowing the app while
     // the window body is drawn. The Preferences window itself is on the foreground layer.
     let screen = ctx.content_rect();
+    let window_height = preferences_window_height(screen.height());
+    let body_height = (PREFERENCES_BODY_HEIGHT - (PREFERENCES_WINDOW_HEIGHT - window_height)).max(160.0);
     egui::Area::new(egui::Id::new("preferences_modal_blocker")).order(egui::Order::Middle).fixed_pos(screen.min).show(ctx, |ui| {
         ui.allocate_exact_size(screen.size(), egui::Sense::click_and_drag());
     });
@@ -664,7 +694,7 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
         .order(egui::Order::Foreground)
         .collapsible(false)
         .resizable(false)
-        .fixed_size(vec2(900.0, 945.0));
+        .fixed_size(vec2(PREFERENCES_WINDOW_WIDTH, window_height));
     if let Some([x, y]) = app.ui.preferences_window_pos {
         window = window.default_pos(egui::pos2(x, y));
     }
@@ -673,7 +703,10 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             let (icon_rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), egui::Sense::hover());
             crate::icons::draw(ui.painter(), icon_rect.shrink(1.0), "zoom", Tokens::current().text_dim);
-            let edit = egui::TextEdit::singleline(&mut search).hint_text("Type to search preferences").desired_width(f32::INFINITY);
+            let edit = egui::TextEdit::singleline(&mut search)
+                .id(egui::Id::new("preferences_search"))
+                .hint_text("Type to search preferences")
+                .desired_width(f32::INFINITY);
             ui.add(edit);
             if !search.is_empty() && ui.small_button("Clear").clicked() {
                 search.clear();
@@ -683,12 +716,22 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
         tabs(ui, &mut page, &search);
         ui.separator();
 
-        // `Window::fixed_size` prevents edge dragging, but egui can still shrink the frame to a
-        // short page's content. Reserving the full body keeps every tab at the tallest page's size.
+        // Reserve the same body height on every page. Only screens shorter than the normal window
+        // get an emergency scroll area, keeping the footer reachable without changing tall-screen
+        // layout or making the window resizable.
         let body_top = ui.cursor().top();
-        page_body(ui, page, &search, &mut draft);
+        if window_height < PREFERENCES_WINDOW_HEIGHT {
+            egui::ScrollArea::vertical()
+                .id_salt("preferences_body")
+                .max_height(body_height)
+                .min_scrolled_height(body_height)
+                .auto_shrink([false, false])
+                .show(ui, |ui| page_body(ui, page, &search, &mut draft));
+        } else {
+            page_body(ui, page, &search, &mut draft);
+        }
         let used_height = ui.cursor().top() - body_top;
-        ui.add_space((PREFERENCES_BODY_HEIGHT - used_height).max(0.0));
+        ui.add_space((body_height - used_height).max(0.0));
 
         ui.separator();
         ui.horizontal(|ui| {
@@ -710,7 +753,7 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
 
     if ctx.input(|i| i.key_pressed(Key::Escape)) {
         action = Some(Action::Cancel);
-    } else if ctx.input(|i| i.key_pressed(Key::Enter)) && !ctx.egui_wants_keyboard_input() {
+    } else if ctx.input(|i| i.key_pressed(Key::Enter)) && !typing {
         action = Some(Action::Apply);
     }
 
@@ -723,13 +766,11 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
             let _ = app.run("ui.reduce_visual_effects", json!({"mode": draft.reduce_visual_effects.id()}));
             let _ = app.run("ui.undo_levels", json!({"levels": draft.undo_levels}));
             open = false;
-            app.preferences.draft = None;
-            app.preferences.search.clear();
+            app.preferences.discard_draft();
         }
         Some(Action::Cancel) => {
             open = false;
-            app.preferences.draft = None;
-            app.preferences.search.clear();
+            app.preferences.discard_draft();
         }
         None => {
             app.preferences.draft = Some(draft);
@@ -740,6 +781,12 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
     app.ui.show_preferences = open;
 }
 
+/// Caps the normal fixed window height so its frame and footer remain inside short screens.
+fn preferences_window_height(screen_height: f32) -> f32 {
+    (screen_height - PREFERENCES_SCREEN_MARGIN).clamp(PREFERENCES_MIN_HEIGHT, PREFERENCES_WINDOW_HEIGHT)
+}
+
+/// Draws the fixed-order page tabs and highlights pages containing a search match.
 fn tabs(ui: &mut egui::Ui, page: &mut PreferencesPage, search: &str) {
     let t = Tokens::current();
     egui::ScrollArea::horizontal().id_salt("preferences_tabs").show(ui, |ui| {
@@ -756,6 +803,7 @@ fn tabs(ui: &mut egui::Ui, page: &mut PreferencesPage, search: &str) {
     });
 }
 
+/// Draws one page using its standard two-column section layout.
 fn page_body(ui: &mut egui::Ui, page: PreferencesPage, search: &str, draft: &mut PreferencesDraft) {
     if page == PreferencesPage::Mixing {
         mixing_page_body(ui, search, draft);
@@ -772,6 +820,7 @@ fn page_body(ui: &mut egui::Ui, page: PreferencesPage, search: &str, draft: &mut
     });
 }
 
+/// Draws the Mixing page whose larger sections use explicit column splits.
 fn mixing_page_body(ui: &mut egui::Ui, search: &str, draft: &mut PreferencesDraft) {
     ui.columns(2, |columns| {
         section_ui(&mut columns[0], PreferencesPage::Mixing, MIXING[0], search, draft);
@@ -785,6 +834,7 @@ fn mixing_page_body(ui: &mut egui::Ui, search: &str, draft: &mut PreferencesDraf
     section_ui_columns(ui, PreferencesPage::Mixing, MIXING[4], 5, search, draft);
 }
 
+/// Draws every control in one section inside its shared frame.
 fn section_ui(ui: &mut egui::Ui, page: PreferencesPage, section: Section, search: &str, draft: &mut PreferencesDraft) {
     section_frame(ui, section, search, |ui| {
         for (index, control) in section.controls.iter().copied().enumerate() {
@@ -793,6 +843,7 @@ fn section_ui(ui: &mut egui::Ui, page: PreferencesPage, section: Section, search
     });
 }
 
+/// Draws a section's title and border, including search-match highlighting.
 fn section_frame(ui: &mut egui::Ui, section: Section, search: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
     let t = Tokens::current();
     let section_hit = text_matches(section.title, search);
@@ -812,6 +863,7 @@ fn section_frame(ui: &mut egui::Ui, section: Section, search: &str, add_contents
     });
 }
 
+/// Draws one long section in two columns at a stable catalog index.
 fn section_ui_columns(ui: &mut egui::Ui, page: PreferencesPage, section: Section, split_at: usize, search: &str, draft: &mut PreferencesDraft) {
     section_frame(ui, section, search, |ui| {
         let split_at = split_at.min(section.controls.len());
@@ -826,6 +878,7 @@ fn section_ui_columns(ui: &mut egui::Ui, page: PreferencesPage, section: Section
     });
 }
 
+/// Draws an implemented control or a disabled placeholder for unavailable behavior.
 fn control_ui(ui: &mut egui::Ui, page: PreferencesPage, section: &str, index: usize, control: Control, search: &str, draft: &mut PreferencesDraft) {
     let t = Tokens::current();
     let hit = text_matches(&control.search_text(), search);
@@ -904,6 +957,7 @@ fn control_ui(ui: &mut egui::Ui, page: PreferencesPage, section: &str, index: us
     }
 }
 
+/// Selects a page from the platform's primary-modifier plus number shortcuts.
 fn select_page_from_keyboard(ctx: &egui::Context, page: &mut PreferencesPage) {
     let mac = ctx.os() == egui::os::OperatingSystem::Mac;
     let keys = [Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6, Key::Num7, Key::Num8, Key::Num9];
@@ -920,10 +974,12 @@ fn select_page_from_keyboard(ctx: &egui::Context, page: &mut PreferencesPage) {
     }
 }
 
+/// Reports whether modifiers represent the platform-specific page shortcut chord.
 fn page_modifiers(modifiers: Modifiers, mac: bool) -> bool {
     !modifiers.alt && !modifiers.shift && if mac { modifiers.command && !modifiers.ctrl } else { modifiers.command && modifiers.ctrl }
 }
 
+/// Reports whether a page title, section or control matches the search terms.
 fn page_matches(page: PreferencesPage, search: &str) -> bool {
     text_matches(page.label(), search)
         || page.sections().iter().any(|section| {
@@ -931,6 +987,7 @@ fn page_matches(page: PreferencesPage, search: &str) -> bool {
         })
 }
 
+/// Performs a case-insensitive AND match over whitespace-separated search terms.
 fn text_matches(text: &str, search: &str) -> bool {
     let search = search.trim();
     if search.is_empty() {
@@ -946,6 +1003,18 @@ mod tests {
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
     use soundcraft_engine::Engine;
+
+    fn preferences_harness(size: egui::Vec2) -> Harness<'static, SoundApp> {
+        let mut app = SoundApp::new(Engine::default(), None, crate::Services::default());
+        app.ui.show_preferences = true;
+        Harness::builder().with_size(size).build_ui_state(
+            |ui, app: &mut SoundApp| {
+                app.logic(&ui.ctx().clone());
+                app.ui(ui);
+            },
+            app,
+        )
+    }
 
     #[test]
     fn search_matches_pages_sections_labels_and_values() {
@@ -983,6 +1052,57 @@ mod tests {
         let mut app = SoundApp::new(Engine::default(), None, crate::Services::default());
         assert_eq!(app.run("setup.preferences", json!({"value": true})), Ok(json!({"value": true})));
         assert!(app.ui.show_preferences);
+    }
+
+    #[test]
+    fn command_closes_discard_staged_preferences_before_a_reopen() {
+        let mut app = SoundApp::new(Engine::default(), None, crate::Services::default());
+        app.ui.show_preferences = true;
+        app.preferences.search = "theme".into();
+        app.preferences.draft =
+            Some(PreferencesDraft { theme: ThemeMode::Light, reduce_visual_effects: ReduceVisualEffects::Always, undo_levels: 1 });
+
+        assert_eq!(app.run("setup.preferences", json!({})), Ok(json!({"value": false})));
+        assert!(app.preferences.draft.is_none());
+        assert!(app.preferences.search.is_empty());
+        assert_eq!(app.run("setup.preferences", json!({})), Ok(json!({"value": true})));
+
+        app.preferences.search = "undo".into();
+        app.preferences.draft =
+            Some(PreferencesDraft { theme: ThemeMode::Light, reduce_visual_effects: ReduceVisualEffects::Always, undo_levels: 1 });
+        assert!(app.run("window.close", json!({})).is_ok());
+        assert!(app.preferences.draft.is_none());
+        assert!(app.preferences.search.is_empty());
+    }
+
+    #[test]
+    fn enter_in_search_does_not_apply_or_close_preferences() {
+        let mut harness = preferences_harness(egui::vec2(1280.0, 1000.0));
+        harness.run_steps(4);
+        harness.ctx.memory_mut(|memory| memory.request_focus(egui::Id::new("preferences_search")));
+        harness.run_steps(1);
+        assert!(harness.ctx.memory(|memory| memory.has_focus(egui::Id::new("preferences_search"))));
+        let state = harness.state_mut();
+        state.preferences.draft.as_mut().unwrap().theme = ThemeMode::Light;
+
+        harness.key_press(Key::Enter);
+        harness.run_steps(2);
+
+        assert!(harness.state().ui.show_preferences);
+        assert_eq!(harness.state().ui.theme, ThemeMode::Dark);
+    }
+
+    #[test]
+    fn short_screens_keep_the_preferences_footer_reachable() {
+        assert_eq!(preferences_window_height(1000.0), PREFERENCES_WINDOW_HEIGHT);
+        assert_eq!(preferences_window_height(800.0), 776.0);
+
+        let mut harness = preferences_harness(egui::vec2(1280.0, 800.0));
+        harness.run_steps(4);
+        let ok = harness.get_by_label("OK").rect();
+        let cancel = harness.get_by_label("Cancel").rect();
+        assert!(ok.max.y <= 800.0, "OK button is outside the screen: {ok:?}");
+        assert!(cancel.max.y <= 800.0, "Cancel button is outside the screen: {cancel:?}");
     }
 
     #[test]
