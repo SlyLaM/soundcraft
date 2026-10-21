@@ -243,7 +243,12 @@ fn zoom_tool_selector(app: &mut SoundApp, ui: &mut Ui, selected: bool, tip: &str
     let icon = if mode == ZoomMode::Single { "zoom_single" } else { "zoom" };
     icons::draw(ui.painter(), Rect::from_center_size(rect.center() - vec2(2.0, 0.0), vec2(20.0, 20.0)), icon, tint);
     icons::draw(ui.painter(), Rect::from_min_size(pos2(rect.max.x - 9.0, rect.max.y - 9.0), vec2(7.0, 6.0)), "triangle_down", tint);
-    if select.clicked() {
+    if select.double_clicked() {
+        let timeline_width = (app.edit_layout.timeline[2] - app.edit_layout.timeline[0]).max(0.0);
+        let width = if timeline_width >= 100.0 { timeline_width } else { (ui.ctx().content_rect().width() - 420.0).max(100.0) };
+        let _ = app.run("edit.tool", json!({"tool": Tool::Zoom.id()}));
+        let _ = app.run("view.zoom_reset", json!({"width_px": width}));
+    } else if select.clicked() {
         let _ = app.run("edit.tool", json!({"tool": Tool::Zoom.id()}));
     }
     let held = ui.input(|i| {
@@ -1371,5 +1376,26 @@ mod zoom_tests {
         pointer_button(&mut h, outside, PointerButton::Primary, false);
         h.run_steps(2);
         assert!(h.query_by_label("Single Zoom").is_none());
+    }
+
+    #[test]
+    fn double_clicking_the_zoom_tool_resets_zoom() {
+        let mut h = zoom_selector();
+        h.state_mut().engine.execute("view.zoom_set", &json!({"samples_per_px": 17.0})).unwrap();
+        h.state_mut().engine.execute("view.scroll", &json!({"to": 12_000})).unwrap();
+        h.state_mut().engine.execute("view.waveform_zoom", &json!({"value": 8.0})).unwrap();
+        let at = h.get_by_label("Zoom tool").rect().left_center();
+        h.hover_at(at);
+        for _ in 0..2 {
+            pointer_button(&mut h, at, PointerButton::Primary, true);
+            pointer_button(&mut h, at, PointerButton::Primary, false);
+        }
+        h.run_steps(2);
+
+        let session = h.state().engine.session();
+        assert_eq!(session.edit.tool, Tool::Zoom);
+        assert_eq!(session.edit.zoom.samples_per_px, 1024.0);
+        assert_eq!(session.edit.zoom.scroll, 0);
+        assert_eq!(session.edit.zoom.waveform_zoom, 1.0);
     }
 }
