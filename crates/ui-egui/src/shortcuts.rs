@@ -61,10 +61,11 @@ fn zoom_tool_chord(key: Key, m: Modifiers, mac: bool) -> bool {
     key == Key::Num1 && mods_match(Modifiers::COMMAND, m, mac)
 }
 
+/// Dispatches global shortcuts unless a dialog or text field owns keyboard input.
 pub fn handle(app: &mut SoundApp, ctx: &egui::Context) {
     // Cmd+= and Cmd+0 are Mix/Edit and Quantize to Grid, not egui's built-in interface zoom.
     ctx.options_mut(|o| o.zoom_with_keyboard = false);
-    let enabled = app.counter_edit.is_none() && !ctx.egui_wants_keyboard_input() && app.dialogs.open.is_none();
+    let enabled = app.counter_edit.is_none() && !ctx.egui_wants_keyboard_input() && app.dialogs.open.is_none() && !app.ui.show_preferences;
     smart_tool_events(app, ctx, enabled);
     if !enabled {
         return;

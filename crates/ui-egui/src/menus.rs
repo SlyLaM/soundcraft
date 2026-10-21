@@ -74,6 +74,8 @@ pub const UI_COMMANDS: &[(&str, &str, &str, Option<&str>)] = &[
     ("ui.bounce_dialog", "Bounce Mix…", "", None),
     ("ui.set", "Set UI State", "", None),
     ("ui.theme", "Appearance", "", None),
+    ("ui.reduce_visual_effects", "Reduce Visual Effects", "", None),
+    ("ui.undo_levels", "Levels of Undo", "", None),
 ];
 
 /// Extra catalog mappings handled by the UI layer.
@@ -220,6 +222,7 @@ pub fn tree() -> Vec<MenuNode> {
     roots
 }
 
+/// Draws the application menu bar and dispatches every chosen leaf through its command id.
 pub fn menu_bar(app: &mut SoundApp, ui: &mut egui::Ui) {
     let t = crate::theme::Tokens::current();
     egui::Panel::top("menu_bar").exact_size(24.0).frame(egui::Frame::NONE.fill(t.menu_bar).inner_margin(egui::Margin::symmetric(8, 2))).show(
@@ -229,6 +232,9 @@ pub fn menu_bar(app: &mut SoundApp, ui: &mut egui::Ui) {
                 ui.menu_button("SoundCraft", |ui| {
                     if ui.button("About SoundCraft").clicked() {
                         app.ui.show_about = true;
+                    }
+                    if ui.button("Preferences...").clicked() {
+                        let _ = app.run("setup.preferences", json!({"value": true}));
                     }
                     if ui.button("Session Info").clicked() {
                         app.ui.show_session_info = true;
@@ -572,6 +578,15 @@ pub fn run_ui_command(app: &mut SoundApp, id: &str, p: &Value) -> Option<Result<
         "window.midi_ops" => toggle(&mut app.ui.show_midi_ops),
         "window.rtp" => toggle(&mut app.ui.show_rtp),
         "window.playback_engine" => toggle(&mut app.ui.show_playback_engine),
+        // The engine catalog already exposes this command. Handling it here keeps the menu,
+        // control channel and scripted callers on the same public command id.
+        "setup.preferences" => {
+            let result = toggle(&mut app.ui.show_preferences);
+            if !app.ui.show_preferences {
+                app.preferences.discard_draft();
+            }
+            result
+        }
         "window.io_setup" => toggle(&mut app.ui.show_io_setup),
         "window.shortcuts" => toggle(&mut app.ui.show_shortcuts),
         "window.color_palette" => toggle(&mut app.ui.show_color_palette),
@@ -628,6 +643,8 @@ pub fn run_ui_command(app: &mut SoundApp, id: &str, p: &Value) -> Option<Result<
             app.ui.show_undo_history = false;
             app.ui.show_session_info = false;
             app.ui.show_audio_health = false;
+            app.ui.show_preferences = false;
+            app.preferences.discard_draft();
             app.ui.show_automation = false;
             app.ui.plugin_windows.clear();
             app.ui.audiosuite = None;
@@ -667,6 +684,23 @@ pub fn run_ui_command(app: &mut SoundApp, id: &str, p: &Value) -> Option<Result<
             };
             app.ui.theme = mode;
             json!({"mode": mode.id()})
+        }
+        "ui.reduce_visual_effects" => {
+            let Some(mode) = p.get("mode").and_then(Value::as_str) else {
+                return Some(Ok(json!({"mode": app.ui.reduce_visual_effects.id()})));
+            };
+            let Some(mode) = crate::preferences::ReduceVisualEffects::parse(mode) else {
+                return Some(Err(format!("unknown visual-effects mode `{mode}` (never, playback or always)")));
+            };
+            app.ui.reduce_visual_effects = mode;
+            json!({"mode": mode.id()})
+        }
+        "ui.undo_levels" => {
+            if let Some(levels) = p.get("levels").and_then(Value::as_u64) {
+                app.ui.undo_levels = usize::try_from(levels).unwrap_or(64).clamp(1, 64);
+                app.engine.set_history_limit(app.ui.undo_levels);
+            }
+            json!({"levels": app.ui.undo_levels})
         }
         "ui.set" => match serde_json::to_value(&app.ui) {
             Ok(mut cur) => {
