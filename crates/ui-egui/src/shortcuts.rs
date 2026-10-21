@@ -5,6 +5,9 @@ use crate::{MainWindow, SoundApp};
 use egui::{Key, Modifiers};
 use serde_json::json;
 
+/// A short grace period keeps the first member of an F6–F8 chord from flashing on screen.
+const SMART_TOOL_CHORD_GRACE_SECONDS: f64 = 0.045;
+
 /// Parse "Cmd+Shift+X" style strings. Returns None for descriptive ones ("F1-F4", "Plus/Minus").
 pub fn parse(s: &str) -> Option<(Modifiers, Key)> {
     let mut m = Modifiers::NONE;
@@ -61,14 +64,18 @@ fn zoom_tool_chord(key: Key, m: Modifiers, mac: bool) -> bool {
 pub fn handle(app: &mut SoundApp, ctx: &egui::Context) {
     // Cmd+= and Cmd+0 are Mix/Edit and Quantize to Grid, not egui's built-in interface zoom.
     ctx.options_mut(|o| o.zoom_with_keyboard = false);
-    if app.counter_edit.is_some() || ctx.egui_wants_keyboard_input() || app.dialogs.open.is_some() {
+    let enabled = app.counter_edit.is_none() && !ctx.egui_wants_keyboard_input() && app.dialogs.open.is_none();
+    smart_tool_events(app, ctx, enabled);
+    if !enabled {
         return;
     }
     let events: Vec<(Key, Modifiers)> = ctx.input(|i| {
         i.events
             .iter()
             .filter_map(|e| match e {
-                egui::Event::Key { key, pressed: true, repeat: false, modifiers, .. } => Some((*key, *modifiers)),
+                egui::Event::Key { key, pressed: true, repeat: false, modifiers, .. } if !matches!(key, Key::F6 | Key::F7 | Key::F8) => {
+                    Some((*key, *modifiers))
+                }
                 _ => None,
             })
             .collect()
@@ -76,7 +83,7 @@ pub fn handle(app: &mut SoundApp, ctx: &egui::Context) {
     // Cmd and Ctrl are separate keys only on macOS (asked at runtime so the web build in a Mac browser agrees).
     let mac = ctx.os() == egui::os::OperatingSystem::Mac;
     for (key, mods) in events {
-        if fixed(app, ctx, key, mods, mac) {
+        if fixed(app, key, mods, mac) {
             continue;
         }
         if let Some(id) = command_for(key, mods, mac) {
@@ -102,7 +109,7 @@ fn command_for(key: Key, mods: Modifiers, mac: bool) -> Option<&'static str> {
 }
 
 /// Keys with context-dependent meaning. Returns true when handled.
-fn fixed(app: &mut SoundApp, ctx: &egui::Context, key: Key, m: Modifiers, mac: bool) -> bool {
+fn fixed(app: &mut SoundApp, key: Key, m: Modifiers, mac: bool) -> bool {
     let plain = !m.command && !m.alt && !m.ctrl && !m.shift;
     match key {
         Key::Space if !m.command && !m.alt => {
@@ -156,10 +163,6 @@ fn fixed(app: &mut SoundApp, ctx: &egui::Context, key: Key, m: Modifiers, mac: b
         }
         Key::F5 if plain => {
             zoom_tool_key(app);
-            true
-        }
-        Key::F6 | Key::F7 | Key::F8 if plain => {
-            smart_tool_key(app, ctx, key);
             true
         }
         Key::F9 | Key::F10 if plain => {
@@ -235,10 +238,71 @@ fn fixed(app: &mut SoundApp, ctx: &egui::Context, key: Key, m: Modifiers, mac: b
     }
 }
 
+/// Replay F6–F8 transitions in event order. `egui::InputState::key_down` reflects only the end of
+/// the frame, so it loses a chord when a second key press precedes the first key's release in the
+/// same batch.
+fn smart_tool_events(app: &mut SoundApp, ctx: &egui::Context, enabled: bool) {
+    let (events, now) = ctx.input(|input| (input.events.clone(), input.time));
+    let mut held = app.smart_tool_keys_down;
+    let mut released_tool_key = false;
+    for event in events {
+        let egui::Event::Key { key, pressed, repeat, modifiers, .. } = event else {
+            continue;
+        };
+        let Some(bit) = smart_tool_key_bit(key) else {
+            continue;
+        };
+        if pressed {
+            held |= bit;
+            if enabled && !repeat && modifiers.is_none() {
+                if held & !bit != 0 || released_tool_key {
+                    app.pending_smart_tool_key = None;
+                    select_smart_tool_key(app, key, held);
+                } else {
+                    app.pending_smart_tool_key = Some((key, now));
+                    ctx.request_repaint_after(std::time::Duration::from_secs_f64(SMART_TOOL_CHORD_GRACE_SECONDS));
+                }
+            }
+        } else {
+            held &= !bit;
+            if enabled && app.pending_smart_tool_key.is_some_and(|(pending, _)| pending == key) {
+                apply_pending_smart_tool_key(app);
+            }
+            released_tool_key = true;
+        }
+    }
+    if !enabled {
+        app.pending_smart_tool_key = None;
+    } else if app.pending_smart_tool_key.is_some_and(|(_, pressed_at)| now - pressed_at >= SMART_TOOL_CHORD_GRACE_SECONDS) {
+        apply_pending_smart_tool_key(app);
+    }
+    // Window focus changes can clear egui's key state without producing matching releases.
+    app.smart_tool_keys_down = ctx.input(|input| {
+        [Key::F6, Key::F7, Key::F8].into_iter().filter(|key| input.key_down(*key)).filter_map(smart_tool_key_bit).fold(0, |keys, bit| keys | bit)
+    });
+}
+
+/// Return the bit used to track one physical member of the F6–F8 tool-key family.
+fn smart_tool_key_bit(key: Key) -> Option<u8> {
+    match key {
+        Key::F6 => Some(1),
+        Key::F7 => Some(2),
+        Key::F8 => Some(4),
+        _ => None,
+    }
+}
+
+/// Apply a pending individual tool selection after its chord grace period or key release.
+fn apply_pending_smart_tool_key(app: &mut SoundApp) {
+    if let Some((key, _)) = app.pending_smart_tool_key.take() {
+        select_smart_tool_key(app, key, smart_tool_key_bit(key).unwrap_or_default());
+    }
+}
+
 /// F6, F7 and F8 choose their individual tools. Holding any two of them selects the Smart Tool;
 /// releases do not change the resulting selection, so pressing a third key keeps Smart selected.
-fn smart_tool_key(app: &mut SoundApp, ctx: &egui::Context, pressed: Key) {
-    let smart = [Key::F6, Key::F7, Key::F8].into_iter().any(|key| key != pressed && ctx.input(|i| i.key_down(key)));
+fn select_smart_tool_key(app: &mut SoundApp, pressed: Key, held: u8) {
+    let smart = smart_tool_key_bit(pressed).is_some_and(|pressed_bit| held & !pressed_bit != 0);
     let tool = if smart {
         "smart"
     } else {
@@ -248,7 +312,9 @@ fn smart_tool_key(app: &mut SoundApp, ctx: &egui::Context, pressed: Key) {
             _ => "grabber",
         }
     };
-    let _ = app.run("edit.tool", json!({"tool": tool}));
+    if app.engine.session().edit.tool.id() != tool {
+        let _ = app.run("edit.tool", json!({"tool": tool}));
+    }
 }
 
 /// Select Zoom, or cycle its mode when the shortcut is pressed again. The keyboard lock keeps the

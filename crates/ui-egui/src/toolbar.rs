@@ -2,7 +2,7 @@
 
 use crate::counter::{CounterEdit, CounterTarget, component_ranges, display as counter_display};
 use crate::theme::{Tokens, bold, mono, regular};
-use crate::widgets::{icon_button, key, key_fill};
+use crate::widgets::{icon_button, joined_icon_button, key, key_fill};
 use crate::{MainWindow, SoundApp, icons};
 use egui::{Align2, Color32, CornerRadius, Key, Painter, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use serde_json::json;
@@ -150,15 +150,18 @@ fn zoom_group(app: &mut SoundApp, ui: &mut Ui) {
     });
 }
 
+/// Draw the edit tools and the shared Smart Tool frame around its three member buttons.
 fn tools(app: &mut SoundApp, ui: &mut Ui) {
     let t = Tokens::current();
     let cur = app.engine.session().edit.tool;
     group(ui, 268.0 + 38.0, 52.0, |ui, r| {
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing = vec2(2.0, 3.0);
+            let mut smart_rect = None;
+            ui.add_space(2.0);
             let row = ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
-                if icon_button(ui, vec2(36.0, 26.0), "zoom_toggle", app.engine.session().edit.zoom_toggle.is_some(), "Zoom Toggle (E)").clicked() {
+                if icon_button(ui, vec2(36.0, 28.0), "zoom_toggle", app.engine.session().edit.zoom_toggle.is_some(), "Zoom Toggle (E)").clicked() {
                     crate::edit_window::zoom_toggle(app);
                 }
                 for (tool, icon) in [
@@ -169,25 +172,44 @@ fn tools(app: &mut SoundApp, ui: &mut Ui) {
                     (Tool::Scrubber, "scrubber"),
                     (Tool::Pencil, "pencil"),
                 ] {
+                    if tool == Tool::Trim {
+                        ui.add_space(6.0);
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                    }
                     let smart_member = cur == Tool::Smart && matches!(tool, Tool::Trim | Tool::Selector | Tool::Grabber);
                     let tip = format!("{}{}", tool.label(), tool.fkey().map(|k| format!(" ({k})")).unwrap_or_default());
                     if tool == Tool::Zoom {
                         zoom_tool_selector(app, ui, cur == Tool::Zoom, &tip);
-                    } else if icon_button(ui, vec2(36.0, 26.0), icon, cur == tool || smart_member, &tip).clicked() {
-                        let _ = app.run("edit.tool", json!({"tool": tool.id()}));
+                    } else {
+                        let response = if matches!(tool, Tool::Trim | Tool::Selector | Tool::Grabber) {
+                            joined_icon_button(ui, vec2(40.0, 28.0), icon, cur == tool || smart_member, &tip)
+                        } else {
+                            icon_button(ui, vec2(36.0, 28.0), icon, cur == tool || smart_member, &tip)
+                        };
+                        if matches!(tool, Tool::Trim | Tool::Selector | Tool::Grabber) {
+                            smart_rect = Some(smart_rect.map_or(response.rect, |rect: Rect| rect.union(response.rect)));
+                        }
+                        if response.clicked() {
+                            let _ = app.run("edit.tool", json!({"tool": tool.id()}));
+                        }
+                    }
+                    if tool == Tool::Grabber {
+                        ui.spacing_mut().item_spacing.x = 2.0;
+                        ui.add_space(6.0);
                     }
                 }
             });
-            // The Smart Tool target is the heavy top-and-side bracket shared by
-            // Trim/Selector/Grabber. Each visible edge is clickable without taking the centers
-            // away from the individual tool buttons.
+            // The Smart Tool target is the heavy top-and-side frame shared by
+            // Trim/Selector/Grabber. Each visible band is clickable without taking the member
+            // buttons away from their individual tools.
             let rr = row.response.rect;
-            let bx0 = rr.min.x + 76.0;
-            let bx1 = bx0 + 38.0 * 3.0 - 2.0;
-            let outline = Rect::from_min_max(pos2(bx0 - 3.0, r.min.y + 1.0), pos2(bx1 + 3.0, rr.max.y + 2.0));
-            let top_hit = Rect::from_min_max(outline.min, pos2(outline.max.x, rr.min.y + 10.0));
-            let left_hit = Rect::from_min_max(outline.min, pos2(outline.min.x + 9.0, outline.max.y));
-            let right_hit = Rect::from_min_max(pos2(outline.max.x - 9.0, outline.min.y), outline.max);
+            let Some(smart_rect) = smart_rect else {
+                return;
+            };
+            let side = 6.0;
+            let top_hit = Rect::from_min_max(pos2(smart_rect.min.x - side, r.min.y), pos2(smart_rect.max.x + side, smart_rect.min.y));
+            let left_hit = Rect::from_min_max(pos2(smart_rect.min.x - side, r.min.y), pos2(smart_rect.min.x, rr.max.y + 2.0));
+            let right_hit = Rect::from_min_max(pos2(smart_rect.max.x, r.min.y), pos2(smart_rect.max.x + side, rr.max.y + 2.0));
             let tip = "Smart Tool (hold any two of F6, F7 and F8)";
             let top = ui.interact(top_hit, ui.id().with("smart"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip);
             let left =
@@ -197,8 +219,9 @@ fn tools(app: &mut SoundApp, ui: &mut Ui) {
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
                 .on_hover_text(tip);
             let color = if cur == Tool::Smart { t.accent } else { t.tool_bracket_off };
-            let stroke = Stroke::new(4.0, color);
-            ui.painter().add(egui::Shape::line(vec![outline.left_bottom(), outline.left_top(), outline.right_top(), outline.right_bottom()], stroke));
+            ui.painter().rect_filled(top_hit, CornerRadius::same(2), color);
+            ui.painter().rect_filled(left_hit, CornerRadius::same(1), color);
+            ui.painter().rect_filled(right_hit, CornerRadius::same(1), color);
             top.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, cur == Tool::Smart, "Smart Tool"));
             if top.clicked() || left.clicked() || right.clicked() {
                 let _ = app.run("edit.tool", json!({"tool": "smart"}));
@@ -231,7 +254,7 @@ fn tools(app: &mut SoundApp, ui: &mut Ui) {
 fn zoom_tool_selector(app: &mut SoundApp, ui: &mut Ui, selected: bool, tip: &str) {
     let mode = app.engine.session().edit.zoom_mode;
     let t = Tokens::current();
-    let (rect, _) = ui.allocate_exact_size(vec2(36.0, 26.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(vec2(36.0, 28.0), Sense::hover());
     let menu_rect = Rect::from_min_max(pos2(rect.max.x - 12.0, rect.min.y), rect.max);
     let select_rect = Rect::from_min_max(rect.min, pos2(menu_rect.min.x, rect.max.y));
     let select = ui.interact(select_rect, ui.id().with("zoom_tool"), Sense::click()).on_hover_text(tip);
