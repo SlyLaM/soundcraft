@@ -1004,6 +1004,7 @@ mod tests {
     use egui_kittest::kittest::Queryable;
     use soundcraft_engine::Engine;
 
+    /// Creates a complete application harness with Preferences already open.
     fn preferences_harness(size: egui::Vec2) -> Harness<'static, SoundApp> {
         let mut app = SoundApp::new(Engine::default(), None, crate::Services::default());
         app.ui.show_preferences = true;
@@ -1016,6 +1017,7 @@ mod tests {
         )
     }
 
+    /// Search includes page, section, control, choice and value text.
     #[test]
     fn search_matches_pages_sections_labels_and_values() {
         assert!(page_matches(PreferencesPage::Display, "theme"));
@@ -1025,6 +1027,7 @@ mod tests {
         assert!(!page_matches(PreferencesPage::Midi, "waveform cache"));
     }
 
+    /// Implemented preferences use commands without becoming document edits.
     #[test]
     fn applying_live_preferences_uses_ui_commands_without_dirtying_the_session() {
         let mut app = SoundApp::new(Engine::default(), None, crate::Services::default());
@@ -1038,6 +1041,7 @@ mod tests {
         assert!(!app.engine.is_dirty());
     }
 
+    /// Command inputs reject unknown modes and bound undo depth safely.
     #[test]
     fn live_preferences_reject_or_clamp_hostile_values() {
         let mut app = SoundApp::new(Engine::default(), None, crate::Services::default());
@@ -1045,6 +1049,7 @@ mod tests {
         assert_eq!(app.run("ui.undo_levels", json!({"levels": 10_000})).unwrap()["levels"], 64);
     }
 
+    /// The Setup menu maps to the same scriptable command as every other entry point.
     #[test]
     fn setup_menu_opens_preferences_through_the_catalog_command() {
         let aliases = crate::menus::ui_aliases();
@@ -1054,6 +1059,7 @@ mod tests {
         assert!(app.ui.show_preferences);
     }
 
+    /// Closing by command cannot leak staged values into a later window instance.
     #[test]
     fn command_closes_discard_staged_preferences_before_a_reopen() {
         let mut app = SoundApp::new(Engine::default(), None, crate::Services::default());
@@ -1075,6 +1081,7 @@ mod tests {
         assert!(app.preferences.search.is_empty());
     }
 
+    /// Enter belongs to the focused search field and must not apply its window.
     #[test]
     fn enter_in_search_does_not_apply_or_close_preferences() {
         let mut harness = preferences_harness(egui::vec2(1280.0, 1000.0));
@@ -1092,6 +1099,7 @@ mod tests {
         assert_eq!(harness.state().ui.theme, ThemeMode::Dark);
     }
 
+    /// The adaptive fixed height keeps both footer buttons inside a short viewport.
     #[test]
     fn short_screens_keep_the_preferences_footer_reachable() {
         assert_eq!(preferences_window_height(1000.0), PREFERENCES_WINDOW_HEIGHT);
@@ -1105,6 +1113,7 @@ mod tests {
         assert!(cancel.max.y <= 800.0, "Cancel button is outside the screen: {cancel:?}");
     }
 
+    /// The application menu invokes the same Preferences command as Setup.
     #[test]
     fn soundcraft_menu_opens_preferences_through_the_same_command() {
         let app = SoundApp::new(Engine::default(), None, crate::Services::default());
@@ -1123,6 +1132,7 @@ mod tests {
         assert!(harness.state().ui.show_preferences);
     }
 
+    /// Page declaration order remains identical to number-shortcut order.
     #[test]
     fn page_order_matches_the_platform_shortcuts() {
         assert_eq!(PreferencesPage::ALL[0], PreferencesPage::Display);
@@ -1130,12 +1140,14 @@ mod tests {
         assert_eq!(PreferencesPage::ALL[8], PreferencesPage::Synchronization);
     }
 
+    /// An empty query does not mark every page and section as a hit.
     #[test]
     fn empty_search_does_not_highlight_everything() {
         assert!(!text_matches("Display", ""));
         assert!(!text_matches("Display", "   "));
     }
 
+    /// Page shortcuts accept only the documented primary modifier for each platform.
     #[test]
     fn page_shortcuts_require_the_platform_primary_modifier_only() {
         let command = Modifiers { command: true, ..Modifiers::NONE };

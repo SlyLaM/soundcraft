@@ -136,6 +136,7 @@ pub struct UiState {
 }
 
 impl Default for UiState {
+    /// Creates the complete persisted UI state with backward-compatible preference defaults.
     fn default() -> Self {
         UiState {
             recent_sessions: Vec::new(),
@@ -360,6 +361,7 @@ fn automation_step_due(pos: Samples, last: Samples, step: Samples) -> bool {
 }
 
 impl SoundApp {
+    /// Creates the UI around an engine and optional playback services.
     pub fn new(engine: Engine, player: Option<Player>, services: Services) -> Self {
         SoundApp {
             recent_seen: engine.path.clone(),

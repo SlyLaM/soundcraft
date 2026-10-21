@@ -22,6 +22,7 @@ pub struct ExtraState {
 }
 
 impl Default for ExtraState {
+    /// Creates per-machine UI settings before persisted values are restored.
     fn default() -> Self {
         Self {
             show_renderer: false,
@@ -149,6 +150,7 @@ fn renderer(app: &mut SoundApp, ctx: &egui::Context) {
     app.extra.show_renderer = open;
 }
 
+/// Draws the compact Appearance window that shares live settings with Preferences.
 fn ui_customization(app: &mut SoundApp, ctx: &egui::Context) {
     let mut open = app.extra.show_ui_customization;
     if !open {

@@ -54,6 +54,7 @@ fn search_chord(m: Modifiers, mac: bool) -> bool {
     mac && m.command && m.ctrl
 }
 
+/// Dispatches global shortcuts unless a dialog or text field owns keyboard input.
 pub fn handle(app: &mut SoundApp, ctx: &egui::Context) {
     // Cmd+= and Cmd+0 are Mix/Edit and Quantize to Grid, not egui's built-in interface zoom.
     ctx.options_mut(|o| o.zoom_with_keyboard = false);
