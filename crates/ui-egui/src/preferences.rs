@@ -1001,7 +1001,7 @@ fn text_matches(text: &str, search: &str) -> bool {
 mod tests {
     use super::*;
     use egui_kittest::Harness;
-    use egui_kittest::kittest::Queryable;
+    use egui_kittest::kittest::{NodeT, Queryable};
     use soundcraft_engine::Engine;
 
     /// Creates a complete application harness with Preferences already open.
@@ -1130,6 +1130,24 @@ mod tests {
         harness.get_by_label("Preferences...").click();
         harness.run_steps(2);
         assert!(harness.state().ui.show_preferences);
+    }
+
+    /// The in-window application menu visibly disables Preferences during playback.
+    #[test]
+    fn soundcraft_menu_disables_preferences_during_playback() {
+        let mut app = SoundApp::new(Engine::default(), None, crate::Services::default());
+        app.engine.transport.playing = true;
+        let mut harness = Harness::builder().with_size(egui::vec2(1600.0, 1000.0)).build_ui_state(
+            |ui, app: &mut SoundApp| {
+                app.logic(&ui.ctx().clone());
+                app.ui(ui);
+            },
+            app,
+        );
+        harness.run_steps(4);
+        harness.get_by_label("SoundCraft").click();
+        harness.run_steps(2);
+        assert!(harness.get_by_label("Preferences...").accesskit_node().is_disabled());
     }
 
     /// Page declaration order remains identical to number-shortcut order.
