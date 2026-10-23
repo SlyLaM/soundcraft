@@ -121,6 +121,43 @@ struct PreferencesDraft {
     theme: ThemeMode,
     reduce_visual_effects: ReduceVisualEffects,
     undo_levels: usize,
+    theme_edited: bool,
+    reduce_visual_effects_edited: bool,
+    undo_levels_edited: bool,
+}
+
+impl PreferencesDraft {
+    /// Starts a clean draft from the current live, per-machine settings.
+    fn from_live(app: &SoundApp) -> Self {
+        Self {
+            theme: app.ui.theme,
+            reduce_visual_effects: app.ui.reduce_visual_effects,
+            undo_levels: app.ui.undo_levels,
+            theme_edited: false,
+            reduce_visual_effects_edited: false,
+            undo_levels_edited: false,
+        }
+    }
+
+    /// Pulls in scripted setting changes while retaining fields edited in this window.
+    fn sync_unedited_from_live(&mut self, app: &SoundApp) {
+        if !self.theme_edited {
+            self.theme = app.ui.theme;
+        }
+        if !self.reduce_visual_effects_edited {
+            self.reduce_visual_effects = app.ui.reduce_visual_effects;
+        }
+        if !self.undo_levels_edited {
+            self.undo_levels = app.ui.undo_levels;
+        }
+    }
+
+    /// Remembers which values the user changed during the current UI frame.
+    fn remember_user_edits(&mut self, before: Self) {
+        self.theme_edited |= self.theme != before.theme;
+        self.reduce_visual_effects_edited |= self.reduce_visual_effects != before.reduce_visual_effects;
+        self.undo_levels_edited |= self.undo_levels != before.undo_levels;
+    }
 }
 
 /// Transient Preferences-window state that is never stored in a session.
@@ -666,11 +703,9 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
         return;
     }
 
-    let mut draft = app.preferences.draft.unwrap_or(PreferencesDraft {
-        theme: app.ui.theme,
-        reduce_visual_effects: app.ui.reduce_visual_effects,
-        undo_levels: app.ui.undo_levels,
-    });
+    let mut draft = app.preferences.draft.unwrap_or_else(|| PreferencesDraft::from_live(app));
+    draft.sync_unedited_from_live(app);
+    let draft_before_ui = draft;
     let mut search = std::mem::take(&mut app.preferences.search);
     let mut page = app.ui.preferences_page;
     let mut action = None;
@@ -750,6 +785,7 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
             app.ui.preferences_window_pos = Some([rect.min.x, rect.min.y]);
         }
     }
+    draft.remember_user_edits(draft_before_ui);
 
     if ctx.input(|i| i.key_pressed(Key::Escape)) {
         action = Some(Action::Cancel);
@@ -1041,6 +1077,47 @@ mod tests {
         assert!(!app.engine.is_dirty());
     }
 
+    /// An unchanged open draft follows newer scripted values instead of restoring stale ones.
+    #[test]
+    fn unchanged_draft_tracks_live_commands_before_apply() {
+        let mut harness = preferences_harness(egui::vec2(1280.0, 1000.0));
+        harness.run_steps(4);
+        {
+            let app = harness.state_mut();
+            assert!(app.run("ui.theme", json!({"mode": ThemeMode::Light.id()})).is_ok());
+            assert!(app.run("ui.reduce_visual_effects", json!({"mode": "always"})).is_ok());
+            assert!(app.run("ui.undo_levels", json!({"levels": 17})).is_ok());
+        }
+        harness.run_steps(2);
+        harness.get_by_label("OK").click();
+        harness.run_steps(2);
+
+        let app = harness.state();
+        assert_eq!(app.ui.theme, ThemeMode::Light);
+        assert_eq!(app.ui.reduce_visual_effects, ReduceVisualEffects::Always);
+        assert_eq!((app.ui.undo_levels, app.engine.history_limit), (17, 17));
+        assert!(!app.ui.show_preferences);
+    }
+
+    /// Fields edited in the window win over later live changes while untouched fields follow them.
+    #[test]
+    fn draft_sync_preserves_only_user_edited_fields() {
+        let mut app = SoundApp::new(Engine::default(), None, crate::Services::default());
+        let mut draft = PreferencesDraft::from_live(&app);
+        let before = draft;
+        draft.theme = ThemeMode::Light;
+        draft.remember_user_edits(before);
+
+        app.ui.theme = ThemeMode::System;
+        app.ui.reduce_visual_effects = ReduceVisualEffects::Always;
+        app.ui.undo_levels = 17;
+        draft.sync_unedited_from_live(&app);
+
+        assert_eq!(draft.theme, ThemeMode::Light);
+        assert_eq!(draft.reduce_visual_effects, ReduceVisualEffects::Always);
+        assert_eq!(draft.undo_levels, 17);
+    }
+
     /// Command inputs reject unknown modes and bound undo depth safely.
     #[test]
     fn live_preferences_reject_or_clamp_hostile_values() {
@@ -1065,8 +1142,11 @@ mod tests {
         let mut app = SoundApp::new(Engine::default(), None, crate::Services::default());
         app.ui.show_preferences = true;
         app.preferences.search = "theme".into();
-        app.preferences.draft =
-            Some(PreferencesDraft { theme: ThemeMode::Light, reduce_visual_effects: ReduceVisualEffects::Always, undo_levels: 1 });
+        let mut draft = PreferencesDraft::from_live(&app);
+        draft.theme = ThemeMode::Light;
+        draft.reduce_visual_effects = ReduceVisualEffects::Always;
+        draft.undo_levels = 1;
+        app.preferences.draft = Some(draft);
 
         assert_eq!(app.run("setup.preferences", json!({})), Ok(json!({"value": false})));
         assert!(app.preferences.draft.is_none());
@@ -1074,8 +1154,7 @@ mod tests {
         assert_eq!(app.run("setup.preferences", json!({})), Ok(json!({"value": true})));
 
         app.preferences.search = "undo".into();
-        app.preferences.draft =
-            Some(PreferencesDraft { theme: ThemeMode::Light, reduce_visual_effects: ReduceVisualEffects::Always, undo_levels: 1 });
+        app.preferences.draft = Some(draft);
         assert!(app.run("window.close", json!({})).is_ok());
         assert!(app.preferences.draft.is_none());
         assert!(app.preferences.search.is_empty());
