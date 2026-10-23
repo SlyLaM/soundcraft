@@ -165,6 +165,7 @@ impl PreferencesDraft {
 pub struct PreferencesState {
     search: String,
     draft: Option<PreferencesDraft>,
+    popup_open: bool,
 }
 
 impl PreferencesState {
@@ -172,6 +173,7 @@ impl PreferencesState {
     pub(crate) fn discard_draft(&mut self) {
         self.draft = None;
         self.search.clear();
+        self.popup_open = false;
     }
 }
 
@@ -713,6 +715,9 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
     // A single-line text edit releases focus on Enter in the frame that receives the key. Capture
     // ownership before drawing so Enter in Search cannot also apply and close the window.
     let typing = ctx.egui_wants_keyboard_input();
+    // egui closes a ComboBox before this window observes Escape, so preserve the previous frame's
+    // popup state to keep the same key from also canceling the complete Preferences window.
+    let popup_was_open = app.preferences.popup_open;
 
     // A transparent middle-layer area makes this a modal window without borrowing the app while
     // the window body is drawn. The Preferences window itself is on the foreground layer.
@@ -786,8 +791,9 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
         }
     }
     draft.remember_user_edits(draft_before_ui);
+    app.preferences.popup_open = ctx.any_popup_open();
 
-    if ctx.input(|i| i.key_pressed(Key::Escape)) {
+    if ctx.input(|i| i.key_pressed(Key::Escape)) && !popup_was_open {
         action = Some(Action::Cancel);
     } else if ctx.input(|i| i.key_pressed(Key::Enter)) && !typing {
         action = Some(Action::Apply);
@@ -1176,6 +1182,22 @@ mod tests {
 
         assert!(harness.state().ui.show_preferences);
         assert_eq!(harness.state().ui.theme, ThemeMode::Dark);
+    }
+
+    /// Escape closes an open choice popup before it can cancel the complete window.
+    #[test]
+    fn escape_closes_a_choice_popup_before_preferences() {
+        let mut harness = preferences_harness(egui::vec2(1280.0, 1000.0));
+        harness.run_steps(4);
+        harness.get_by_value("Dark").click();
+        harness.run_steps(2);
+        assert!(harness.ctx.any_popup_open());
+
+        harness.key_press(Key::Escape);
+        harness.run_steps(2);
+
+        assert!(!harness.ctx.any_popup_open());
+        assert!(harness.state().ui.show_preferences);
     }
 
     /// The adaptive fixed height keeps both footer buttons inside a short viewport.

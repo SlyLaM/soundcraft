@@ -734,6 +734,8 @@ pub fn run_ui_command(app: &mut SoundApp, id: &str, p: &Value) -> Option<Result<
                         }
                         crate::docking::cancel_replaced_state(app, &ns);
                         app.ui = ns;
+                        app.ui.undo_levels = app.ui.undo_levels.clamp(1, 64);
+                        app.engine.set_history_limit(app.ui.undo_levels);
                         json!({"ui": app.ui})
                     }
                     Err(e) => return Some(Err(format!("bad ui state: {e}"))),
@@ -810,6 +812,20 @@ mod tests {
         assert!(app.ui.show_preferences);
         invoke_menu(&mut app, "setup.preferences", "Setup > Preferences...");
         assert!(app.ui.show_preferences);
+    }
+
+    /// Generic UI-state updates clamp and immediately synchronize the engine history limit.
+    #[test]
+    fn ui_set_synchronizes_undo_levels_immediately() {
+        let mut app = SoundApp::new(soundcraft_engine::Engine::default(), None, Services::default());
+
+        let result = app.run("ui.set", json!({"undo_levels": 0})).unwrap();
+        assert_eq!(result["ui"]["undo_levels"], 1);
+        assert_eq!((app.ui.undo_levels, app.engine.history_limit), (1, 1));
+
+        let result = app.run("ui.set", json!({"undo_levels": 100})).unwrap();
+        assert_eq!(result["ui"]["undo_levels"], 64);
+        assert_eq!((app.ui.undo_levels, app.engine.history_limit), (64, 64));
     }
 
     #[test]
