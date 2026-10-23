@@ -224,56 +224,62 @@ pub fn tree() -> Vec<MenuNode> {
 /// Draws the application menu bar and dispatches every chosen leaf through its command id.
 pub fn menu_bar(app: &mut SoundApp, ui: &mut egui::Ui) {
     let t = crate::theme::Tokens::current();
+    let menu_entries_enabled = !app.ui.show_preferences;
+    let preferences_enabled = preferences_menu_enabled(app);
     egui::Panel::top("menu_bar").exact_size(24.0).frame(egui::Frame::NONE.fill(t.menu_bar).inner_margin(egui::Margin::symmetric(8, 2))).show(
         ui,
         |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("SoundCraft", |ui| {
-                    if ui.button("About SoundCraft").clicked() {
-                        app.ui.show_about = true;
-                    }
-                    if ui.button("Preferences...").clicked() {
-                        let _ = app.run("setup.preferences", json!({"value": true}));
-                    }
-                    if ui.button("Session Info").clicked() {
-                        app.ui.show_session_info = true;
-                    }
-                    if ui.button("Session Audio Health").clicked() {
-                        let _ = app.run("window.audio_health", json!({"value": true}));
-                    }
-                    ui.separator();
-                    if ui.button("Quit").clicked() {
-                        let _ = crate::dialogs::run_or_ask(app, "app.quit", json!({}));
-                    }
+                    ui.add_enabled_ui(menu_entries_enabled, |ui| {
+                        if ui.button("About SoundCraft").clicked() {
+                            app.ui.show_about = true;
+                        }
+                        if ui.add_enabled(preferences_enabled, egui::Button::new("Preferences...")).clicked() {
+                            let _ = app.run("setup.preferences", json!({"value": true}));
+                        }
+                        if ui.button("Session Info").clicked() {
+                            app.ui.show_session_info = true;
+                        }
+                        if ui.button("Session Audio Health").clicked() {
+                            let _ = app.run("window.audio_health", json!({"value": true}));
+                        }
+                        ui.separator();
+                        if ui.button("Quit").clicked() {
+                            let _ = crate::dialogs::run_or_ask(app, "app.quit", json!({}));
+                        }
+                    });
                 });
                 let extra = ui_aliases();
                 for root in tree() {
                     ui.menu_button(&root.label, |ui| {
-                        for c in &root.children {
-                            menu_node(app, ui, c, &extra);
-                            if c.path == "File > Open" {
-                                crate::recent::menu(app, ui);
+                        ui.add_enabled_ui(menu_entries_enabled, |ui| {
+                            for c in &root.children {
+                                menu_node(app, ui, c, &extra);
+                                if c.path == "File > Open" {
+                                    crate::recent::menu(app, ui);
+                                }
+                                if c.path == "Track > New..." {
+                                    instrument_menu(app, ui);
+                                }
                             }
-                            if c.path == "Track > New..." {
-                                instrument_menu(app, ui);
+                            if root.label == "AudioSuite" {
+                                ui.separator();
+                                ui.label(egui::RichText::new("Processes selected clips offline").small().color(t.text_dim));
                             }
-                        }
-                        if root.label == "AudioSuite" {
-                            ui.separator();
-                            ui.label(egui::RichText::new("Processes selected clips offline").small().color(t.text_dim));
-                        }
-                        if root.label == "Window" {
-                            ui.separator();
-                            let mut separate = app.ui.mix_separate;
-                            if ui
-                                .checkbox(&mut separate, "Mix in Separate Window")
-                                .on_hover_text("Show Edit and Mix at once, e.g. one per monitor")
-                                .changed()
-                            {
-                                let _ = run_ui_command(app, "window.mix_separate", &json!({"value": separate}));
-                                ui.close();
+                            if root.label == "Window" {
+                                ui.separator();
+                                let mut separate = app.ui.mix_separate;
+                                if ui
+                                    .checkbox(&mut separate, "Mix in Separate Window")
+                                    .on_hover_text("Show Edit and Mix at once, e.g. one per monitor")
+                                    .changed()
+                                {
+                                    let _ = run_ui_command(app, "window.mix_separate", &json!({"value": separate}));
+                                    ui.close();
+                                }
                             }
-                        }
+                        });
                     });
                 }
                 let title = format!(
@@ -337,16 +343,29 @@ pub fn command_for_path(path: &str, extra: &[(&str, &str)]) -> Option<String> {
 
 /// Enabled and checked state shared by all menu presentations.
 pub fn item_state(app: &SoundApp, path: &str, id: Option<&str>) -> (bool, bool) {
-    let enabled = match id {
-        Some(i)
-            if i.starts_with("window.") || i.starts_with("view.mix_section") || matches!(i, "audiosuite.process" | "ui.dock" | "ui.dock.reset") =>
-        {
-            true
+    let enabled = if app.ui.show_preferences {
+        false
+    } else {
+        match id {
+            Some("setup.preferences") => preferences_menu_enabled(app),
+            Some(i)
+                if i.starts_with("window.")
+                    || i.starts_with("view.mix_section")
+                    || matches!(i, "audiosuite.process" | "ui.dock" | "ui.dock.reset") =>
+            {
+                true
+            }
+            Some(i) => soundcraft_engine::find_command(i).is_some_and(|c| (c.enabled)(&app.engine).is_ok() && !app.engine.blocked_while_recording(i)),
+            None => false,
         }
-        Some(i) => soundcraft_engine::find_command(i).is_some_and(|c| (c.enabled)(&app.engine).is_ok() && !app.engine.blocked_while_recording(i)),
-        None => false,
     };
     (enabled, checked_state(app, path, id))
+}
+
+/// Preferences cannot replace audio resources while transport is active or another Preferences
+/// instance is already modal.
+fn preferences_menu_enabled(app: &SoundApp) -> bool {
+    !app.ui.show_preferences && !app.is_playing() && !app.engine.transport.recording
 }
 
 fn checked_state(app: &SoundApp, path: &str, id: Option<&str>) -> bool {
@@ -468,6 +487,10 @@ pub fn live_label(app: &SoundApp, id: Option<&str>) -> Option<String> {
 
 /// Menu-style invocation: may open a dialog.
 pub fn invoke_menu(app: &mut SoundApp, id: &str, path: &str) {
+    if id == "setup.preferences" {
+        let _ = app.run(id, json!({"value": true}));
+        return;
+    }
     if let Some((_, w)) = MENU_WINDOWS.iter().find(|(p, _)| *p == path)
         && w.starts_with("window.")
     {
@@ -758,6 +781,35 @@ mod tests {
         app.dialogs.open = None;
         invoke_menu(&mut app, "ui.bounce_dialog", "File > Bounce Mix...");
         assert_eq!(app.dialogs.open_name(), Some("bounce"));
+    }
+
+    /// Preferences menu entries follow transport safety and the modal window locks every menu.
+    #[test]
+    fn preferences_menu_state_tracks_transport_and_modality() {
+        let mut app = SoundApp::new(soundcraft_engine::Engine::default(), None, Services::default());
+        assert!(item_state(&app, "Setup > Preferences...", Some("setup.preferences")).0);
+
+        app.engine.transport.playing = true;
+        assert!(!item_state(&app, "Setup > Preferences...", Some("setup.preferences")).0);
+        app.engine.transport.playing = false;
+        app.engine.transport.recording = true;
+        assert!(!item_state(&app, "Setup > Preferences...", Some("setup.preferences")).0);
+
+        app.engine.transport.recording = false;
+        app.ui.show_preferences = true;
+        assert!(!item_state(&app, "Setup > Preferences...", Some("setup.preferences")).0);
+        assert!(!item_state(&app, "Window > About", Some("window.about")).0);
+        assert!(!item_state(&app, "File > Save Session", Some("session.save")).0);
+    }
+
+    /// Re-selecting Preferences through either menu keeps its modal window open.
+    #[test]
+    fn preferences_menu_always_opens_instead_of_toggling() {
+        let mut app = SoundApp::new(soundcraft_engine::Engine::default(), None, Services::default());
+        invoke_menu(&mut app, "setup.preferences", "Setup > Preferences...");
+        assert!(app.ui.show_preferences);
+        invoke_menu(&mut app, "setup.preferences", "Setup > Preferences...");
+        assert!(app.ui.show_preferences);
     }
 
     #[test]
