@@ -35,7 +35,7 @@ Legend: ✅ matches · 🟡 partial · ❌ missing.
 | Modifier gestures (Alt for all tracks, Shift-Alt for selected, Cmd-click fine faders, Ctrl-click defaults) | 🟡 | Main ones on faders and pan; not across every control |
 | Scroll/zoom: wheel, trackpad pinch | 🟡 | Anchored trackpad zoom in open PRs #112, #137 |
 | Drag and drop: Clip List → tracks, files → tracks | ✅ macOS/Windows; 🟡 Wayland (PR #150) | |
-| Context menus (clip, track name, ruler, Clip List) | 🟡 | Clip and track menus exist; depth lower than Pro Tools'; Clip List delete (#4) |
+| Context menus (clip, track name, ruler, Clip List) | 🟡 | Clip and track menus exist; depth lower than Pro Tools'; Clip List delete (#4); track name ▸ Scroll Into View (Edit top, Mix left) |
 | Drag across checkboxes to check or uncheck several | ✅ | #399; every checkbox, as in the other Craft apps |
 
 ## Windows and panels
@@ -71,6 +71,7 @@ Legend: ✅ matches · 🟡 partial · ❌ missing.
 |---|---|---|
 | 2026-10-20 | minor | Preferences uses one fixed non-scrolling size with compact stacked choices, removes the duplicate meter-type list, and command-backs visual-effects reduction and undo depth alongside the UI theme |
 | 2026-10-19 | minor | Preferences opens from Setup with nine searchable pages, compact grouped controls, staged apply/cancel, platform tab shortcuts and disabled placeholders for unavailable settings |
+| 2026-10-16 | minor | Track name menu: Scroll Into View brings the track to the top of the Edit window and the left of the Mix. Readiness estimate unchanged |
 | 2026-10-13 | minor | A plugin opens when it's inserted (#486) |
 | 2026-10-13 | minor | Drag across checkboxes (#399) |
 | 2026-10-13 | minor | Waveforms and fade curves share temporary envelopes during drag, without rebuilding media or editing the document before release. Readiness estimate unchanged |
