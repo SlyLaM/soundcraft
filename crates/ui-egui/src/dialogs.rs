@@ -40,6 +40,7 @@ pub struct Dialogs {
 }
 
 impl Dialogs {
+    /// Returns the stable UI identifier of the currently open dialog.
     pub fn open_name(&self) -> Option<&'static str> {
         self.open.as_ref().map(|d| match d {
             Dialog::NewTracks(_) => "new_tracks",

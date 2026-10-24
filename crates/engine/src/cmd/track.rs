@@ -7,6 +7,7 @@ use crate::{Engine, Result, cmd};
 use serde_json::{Value, json};
 use soundcraft_model::{ChannelFormat, ClipContent, Group, GroupId, Playlist, Route, Session, Track, TrackHeight, TrackId, TrackKind};
 
+/// Returns the track command specifications exposed to UI and automation clients.
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(
@@ -231,6 +232,7 @@ pub fn specs() -> Vec<CommandSpec> {
     ]
 }
 
+/// Creates either one legacy row or several validated rows as one command.
 fn new_track(e: &mut Engine, p: &Value) -> Result<Value> {
     let ids = if let Some(rows) = p.get("rows") {
         let rows = rows.as_array().ok_or_else(|| bad("track.new", "`rows` must be an array"))?;

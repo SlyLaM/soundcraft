@@ -9,6 +9,7 @@ const NAME_WIDTH: f32 = 260.0;
 const ROW_BUTTON_WIDTH: f32 = 22.0;
 
 #[derive(Debug, Clone)]
+/// One independently configured row in the New Tracks dialog.
 pub struct NewTrackRow {
     key: u64,
     pub count: u32,
@@ -40,6 +41,7 @@ impl NewTrackRow {
 }
 
 #[derive(Debug, Clone)]
+/// State for the multi-row New Tracks dialog.
 pub struct NewTracks {
     pub rows: Vec<NewTrackRow>,
     active: usize,
