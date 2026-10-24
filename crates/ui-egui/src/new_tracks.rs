@@ -25,8 +25,16 @@ impl Default for NewTrackRow {
 }
 
 impl NewTrackRow {
+    /// Builds one `track.new` row without values belonging to hidden controls.
     fn params(&self) -> Value {
-        json!({"count": self.count, "format": self.format, "kind": self.kind, "timebase": self.timebase, "name": self.name})
+        let mut params = json!({"count": self.count, "kind": self.kind, "name": self.name});
+        if has_format(&self.kind) {
+            params["format"] = json!(self.format);
+        }
+        if has_timebase(&self.kind) {
+            params["timebase"] = json!(self.timebase);
+        }
+        params
     }
 }
 
@@ -397,6 +405,26 @@ mod tests {
         assert_eq!(h.get_all_by_role(Role::ComboBox).count(), all_fields - 2);
         let current_name = h.get_by_role_and_label(Role::TextInput, "Name:").rect();
         assert_eq!((current_name.min.x, current_name.width()), (name.min.x, name.width()));
+    }
+
+    /// Submitted rows omit controls that are hidden for their selected track kind.
+    #[test]
+    fn inapplicable_fields_are_omitted_from_row_parameters() {
+        let row = NewTrackRow {
+            count: 2,
+            format: "Stereo".into(),
+            kind: TrackKind::Midi.id().into(),
+            timebase: "ticks".into(),
+            name: "MIDI".into(),
+            ..NewTrackRow::default()
+        };
+        assert_eq!(row.params(), json!({"count": 2, "kind": "midi", "timebase": "ticks", "name": "MIDI"}));
+
+        let row = NewTrackRow { kind: TrackKind::Vca.id().into(), name: "VCA".into(), ..row };
+        assert_eq!(row.params(), json!({"count": 2, "kind": "vca", "timebase": "ticks", "name": "VCA"}));
+
+        let row = NewTrackRow { kind: TrackKind::Video.id().into(), name: "Video".into(), ..row };
+        assert_eq!(row.params(), json!({"count": 2, "kind": "video", "name": "Video"}));
     }
 
     #[test]
