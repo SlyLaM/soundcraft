@@ -12,7 +12,7 @@ use soundcraft_time::Samples;
 pub enum Dialog {
     NewTracks(crate::new_tracks::NewTracks),
     NewSession { name: String, sample_rate: u32, demo: bool },
-    Bounce { path: String, format: String, bit_depth: String, normalize: bool },
+    Bounce { path: String, format: String, bit_depth: String, normalize: bool, dither: bool },
     RenameTrack { id: TrackId, name: String },
     RenameClip { id: ClipId, name: String },
     RenameMarker { id: soundcraft_model::MarkerId, name: String },
@@ -111,7 +111,13 @@ impl Dialogs {
                     .and_then(|p| std::path::Path::new(p).parent())
                     .filter(|d| !d.as_os_str().is_empty())
                     .map_or(home.clone(), |d| d.display().to_string());
-                Dialog::Bounce { path: format!("{dir}/{name} Bounce.wav"), format: "wav".into(), bit_depth: "24".into(), normalize: false }
+                Dialog::Bounce {
+                    path: format!("{dir}/{name} Bounce.wav"),
+                    format: "wav".into(),
+                    bit_depth: "24".into(),
+                    normalize: false,
+                    dither: false,
+                }
             }
             "file.import_audio" => Dialog::PathPrompt { cmd: id.into(), title: "Import Audio".into(), path: home, key: "path".into() },
             "file.import_midi" => Dialog::PathPrompt { cmd: id.into(), title: "Import MIDI".into(), path: home, key: "path".into() },
@@ -305,6 +311,7 @@ fn default_dir() -> String {
 pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
     audiosuite_window(app, ctx);
     crate::bounce::show(app, ctx);
+    crate::import::show(app, ctx);
     let Some(mut d) = app.dialogs.open.take() else { return };
     let mut keep = true;
     let mut action: Option<(String, Value)> = None;
@@ -363,7 +370,7 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
                         ));
                     }
                 }
-                Dialog::Bounce { path, format, bit_depth, normalize } => {
+                Dialog::Bounce { path, format, bit_depth, normalize, dither } => {
                     ui.horizontal(|ui| {
                         ui.label("File");
                         ui.add(egui::TextEdit::singleline(path).desired_width(420.0));
@@ -393,6 +400,11 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
                         });
                     });
                     crate::widgets::checkbox(ui, normalize, "Normalize to -0.1 dBFS");
+                    // 32-bit float keeps every sample as it is: there is nothing to dither.
+                    ui.add_enabled_ui(bit_depth.as_str() != "32f", |ui| {
+                        crate::widgets::checkbox(ui, dither, "Dither (TPDF)")
+                            .on_hover_text("Adds ±1 LSB triangular dither when writing 16- or 24-bit files. Leave it off when the master chain already dithers.");
+                    });
                     ui.label(
                         egui::RichText::new("Bounces the edit selection, or the whole session when nothing is selected.")
                             .small()
@@ -402,7 +414,7 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
                         let p = std::path::Path::new(path.as_str()).with_extension(if format == "aiff" { "aif" } else { format.as_str() });
                         crate::bounce::start(
                             app,
-                            &json!({"path": p.to_string_lossy(), "format": format, "bit_depth": bit_depth, "normalize": normalize}),
+                            &json!({"path": p.to_string_lossy(), "format": format, "bit_depth": bit_depth, "normalize": normalize, "dither": *dither && bit_depth.as_str() != "32f"}),
                         );
                         keep = false;
                     }
@@ -633,12 +645,17 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
     let saving = action.as_ref().is_some_and(|(cmd, _)| cmd.starts_with("session.save"));
     if let Some((cmd, params)) = action {
         keep = false;
-        match run_then(app, &cmd, params) {
-            Ok(v) if cmd == "file.export_clips" => {
-                app.ui.status = format!("Exported {} clip(s) to {}", v["written"], v["dir"].as_str().unwrap_or_default());
+        if cmd == "file.import_audio" {
+            // Decoded in the background so a long file doesn't freeze the app (#597).
+            crate::import::start(app, params);
+        } else {
+            match run_then(app, &cmd, params) {
+                Ok(v) if cmd == "file.export_clips" => {
+                    app.ui.status = format!("Exported {} clip(s) to {}", v["written"], v["dir"].as_str().unwrap_or_default());
+                }
+                Ok(_) => {}
+                Err(e) => app.ui.status = e,
             }
-            Ok(_) => {}
-            Err(e) => app.ui.status = e,
         }
     }
     if saving
@@ -756,6 +773,7 @@ mod tests {
     use super::*;
     use crate::new_tracks::set_new_track_kind;
 
+    /// Opens and settles the dialog for a chosen desktop operating system.
     fn tracks_dialog(os: egui::os::OperatingSystem) -> (egui::Context, SoundApp) {
         let ctx = egui::Context::default();
         ctx.set_os(os);
@@ -768,6 +786,7 @@ mod tests {
         (ctx, app)
     }
 
+    /// Runs one dialog frame with synthetic input events.
     fn dialog_frame(ctx: &egui::Context, app: &mut SoundApp, events: Vec<egui::Event>) {
         let raw =
             egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1600.0, 1000.0))), events, ..Default::default() };
@@ -778,10 +797,12 @@ mod tests {
         output.textures_delta.clear();
     }
 
+    /// Constructs one non-repeating key-press event for dialog tests.
     fn key(key: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
         egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }
     }
 
+    /// Returns every editable value from the active New Tracks row.
     fn track_fields(app: &SoundApp) -> (u32, &str, &str, &str, &str) {
         match app.dialogs.open.as_ref().unwrap() {
             Dialog::NewTracks(tracks) => {
@@ -792,6 +813,7 @@ mod tests {
         }
     }
 
+    /// Opening selects the count, and bare arrows adjust it within its bounds.
     #[test]
     fn new_tracks_focus_selects_count_and_arrows_clamp_it() {
         let (ctx, mut app) = tracks_dialog(egui::os::OperatingSystem::Mac);
@@ -813,6 +835,7 @@ mod tests {
         assert_eq!(track_fields(&app).0, 1);
     }
 
+    /// macOS command-arrow families edit format, type and timebase without changing count.
     #[test]
     fn new_tracks_mac_chords_change_settings_without_changing_count() {
         for ctrl in [false, true] {
@@ -845,6 +868,7 @@ mod tests {
         }
     }
 
+    /// Type changes update default names while preserving names entered by the user.
     #[test]
     fn new_tracks_type_changes_preserve_custom_names() {
         let (ctx, mut app) = tracks_dialog(egui::os::OperatingSystem::Mac);
@@ -863,6 +887,7 @@ mod tests {
         assert_eq!(name, "Foley");
     }
 
+    /// Enter creates and Escape cancels without leaking events to the background UI.
     #[test]
     fn new_tracks_enter_creates_and_escape_cancels_on_each_platform() {
         for os in [egui::os::OperatingSystem::Mac, egui::os::OperatingSystem::Windows, egui::os::OperatingSystem::Nix] {
@@ -880,6 +905,7 @@ mod tests {
         }
     }
 
+    /// Windows and Linux chords cover every editable field and row action.
     #[test]
     fn new_tracks_windows_and_linux_chords_cover_every_field_and_row_action() {
         for os in [egui::os::OperatingSystem::Windows, egui::os::OperatingSystem::Nix] {

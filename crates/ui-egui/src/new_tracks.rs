@@ -19,6 +19,7 @@ pub struct NewTrackRow {
 }
 
 impl Default for NewTrackRow {
+    /// Starts one mono audio row with the program defaults.
     fn default() -> Self {
         Self { key: 0, count: 1, format: "Mono".into(), kind: "audio".into(), timebase: "samples".into(), name: "Audio".into() }
     }
@@ -47,16 +48,19 @@ pub struct NewTracks {
 }
 
 impl Default for NewTracks {
+    /// Starts the dialog with one row whose count field receives focus.
     fn default() -> Self {
         Self { rows: vec![NewTrackRow::default()], active: 0, next_key: 1, focus_count: true }
     }
 }
 
 impl NewTracks {
+    /// Returns the row currently targeted by keyboard shortcuts.
     pub fn active_row(&self) -> Option<&NewTrackRow> {
         self.rows.get(self.active)
     }
 
+    /// Inserts a default row after `index` and moves focus to its count.
     fn insert_after(&mut self, index: usize) {
         if self.rows.len() >= MAX_TRACKS || self.rows.get(index).is_none() {
             return;
@@ -68,6 +72,7 @@ impl NewTracks {
         self.focus_count = true;
     }
 
+    /// Removes `index` while retaining at least one row and a valid active row.
     fn remove(&mut self, index: usize) {
         if self.rows.len() <= 1 || self.rows.get(index).is_none() {
             return;
@@ -81,6 +86,7 @@ impl NewTracks {
         }
     }
 
+    /// Handles the row, format, type and timebase shortcut families for the active row.
     fn keys(&mut self, ctx: &egui::Context) {
         let mac = ctx.os() == egui::os::OperatingSystem::Mac;
         ctx.input_mut(|i| {
@@ -129,6 +135,7 @@ impl NewTracks {
         });
     }
 
+    /// Draws every creation row and returns one atomic `track.new` request when submitted.
     pub(crate) fn show(&mut self, ui: &mut Ui, enter: bool) -> Option<Value> {
         self.keys(ui.ctx());
         let widths = RowWidths::new(ui);
@@ -258,6 +265,7 @@ struct RowWidths {
 }
 
 impl RowWidths {
+    /// Measures every possible choice so row columns stay fixed while values change.
     fn new(ui: &Ui) -> Self {
         Self {
             count: (styled_text_width(ui, "128", &ui.style().drag_value_text_style) + 2.0 * ui.spacing().button_padding.x)
@@ -269,26 +277,31 @@ impl RowWidths {
         }
     }
 
+    /// Returns the complete width required by one row, including labels and buttons.
     fn total(&self, ui: &Ui) -> f32 {
         let labels: f32 = ["Create", "new", "in", "Name:"].iter().map(|s| text_width(ui, s)).sum();
         labels + self.count + self.format + self.kind + self.timebase + NAME_WIDTH + 2.0 * ROW_BUTTON_WIDTH + 10.0 * ui.spacing().item_spacing.x + 8.0
     }
 }
 
+/// Measures ordinary button text with the current theme and font scale.
 fn text_width(ui: &Ui, text: &str) -> f32 {
     styled_text_width(ui, text, &TextStyle::Button)
 }
 
+/// Measures one string using the supplied egui text style.
 fn styled_text_width(ui: &Ui, text: &str, style: &TextStyle) -> f32 {
     let font = style.resolve(ui.style());
     ui.fonts_mut(|f| f.layout_no_wrap(text.to_string(), font, ui.visuals().text_color()).size().x)
 }
 
+/// Computes a stable ComboBox width from all labels it may display.
 fn combo_width<'a>(ui: &Ui, labels: impl Iterator<Item = &'a str>) -> f32 {
     let longest = labels.map(|s| text_width(ui, s)).fold(0.0, f32::max);
     (longest + ui.spacing().icon_width + ui.spacing().icon_spacing + 2.0 * ui.spacing().button_padding.x + 2.0).ceil()
 }
 
+/// Changes kind and updates the default name without replacing a custom name.
 pub(crate) fn set_new_track_kind(kind: &mut String, name: &mut String, next: TrackKind) {
     if TrackKind::from_id(kind).is_some_and(|old| name == old.default_name()) {
         *name = next.default_name().to_string();
@@ -296,14 +309,17 @@ pub(crate) fn set_new_track_kind(kind: &mut String, name: &mut String, next: Tra
     *kind = next.id().to_string();
 }
 
+/// Reports whether a track kind exposes a channel-format control.
 fn has_format(kind: &str) -> bool {
     !matches!(TrackKind::from_id(kind), Some(TrackKind::Midi | TrackKind::Vca | TrackKind::Video))
 }
 
+/// Reports whether a track kind exposes a samples/ticks control.
 fn has_timebase(kind: &str) -> bool {
     !matches!(TrackKind::from_id(kind), Some(TrackKind::Video))
 }
 
+/// Moves one position through a circular choice list in either direction.
 fn cycle_index(index: usize, len: usize, forward: bool) -> usize {
     if forward {
         if index.saturating_add(1) < len { index.saturating_add(1) } else { 0 }
@@ -319,6 +335,7 @@ mod tests {
     use egui::{Modifiers, accesskit::Role};
     use egui_kittest::{Harness, kittest::Queryable};
 
+    /// Opens a settled New Tracks dialog in a macOS UI harness.
     fn harness() -> Harness<'static, SoundApp> {
         let mut app = SoundApp::new(soundcraft_engine::Engine::default(), None, Services::default());
         assert!(app.dialogs.open_for_command(&app.engine, "track.new"));
@@ -334,22 +351,26 @@ mod tests {
         h
     }
 
+    /// Borrows the dialog model from a test harness.
     fn tracks<'a>(h: &'a Harness<'_, SoundApp>) -> &'a NewTracks {
         let Some(Dialog::NewTracks(tracks)) = &h.state().dialogs.open else { panic!("missing New Tracks dialog") };
         tracks
     }
 
+    /// Mutably borrows the dialog model from a test harness.
     fn tracks_mut<'a>(h: &'a mut Harness<'_, SoundApp>) -> &'a mut NewTracks {
         let Some(Dialog::NewTracks(tracks)) = &mut h.state_mut().dialogs.open else { panic!("missing New Tracks dialog") };
         tracks
     }
 
+    /// Sends one keyboard chord and lets a resized dialog settle.
     fn chord(h: &mut Harness<SoundApp>, m: Modifiers, key: Key) {
         h.key_press_modifiers(m, key);
         // A centered window needs another frame to settle after its row count changes.
         h.run_steps(4);
     }
 
+    /// Every selectable label retains its column's maximum measured width.
     #[test]
     fn every_choice_keeps_the_same_field_widths_and_name_position() {
         let mut h = harness();
@@ -386,6 +407,7 @@ mod tests {
         assert_eq!(h.get_by_role_and_label(Role::TextInput, "Name:").rect(), larger_font_name);
     }
 
+    /// Hidden controls retain their layout space for kinds that do not use them.
     #[test]
     fn inapplicable_fields_are_hidden_without_moving_the_other_columns() {
         let mut h = harness();
@@ -427,6 +449,7 @@ mod tests {
         assert_eq!(row.params(), json!({"count": 2, "kind": "video", "name": "Video"}));
     }
 
+    /// Both supported add/remove shortcut variants preserve independent row state.
     #[test]
     fn both_requested_row_chords_focus_the_new_count_and_preserve_other_rows() {
         for alt in [false, true] {
@@ -453,6 +476,7 @@ mod tests {
         }
     }
 
+    /// Each row's add and remove buttons act at that row's position.
     #[test]
     fn plus_and_minus_buttons_operate_on_their_own_row() {
         let mut h = harness();
@@ -473,6 +497,7 @@ mod tests {
         assert_eq!(tracks(&h).rows.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["Dialogue", "Effects"]);
     }
 
+    /// Removing a preceding row does not transfer widget state to another row.
     #[test]
     fn removing_an_earlier_row_keeps_editing_state_with_the_surviving_row() {
         let mut h = harness();
@@ -490,6 +515,7 @@ mod tests {
         assert_eq!(tracks(&h).rows[0].count, 43);
     }
 
+    /// A clicked row receives later shortcuts without altering its custom name.
     #[test]
     fn clicking_a_different_row_targets_its_chords_and_keeps_its_custom_name() {
         let mut h = harness();
@@ -510,6 +536,7 @@ mod tests {
         assert_eq!((rows[0].count, rows[1].count), (1, 1));
     }
 
+    /// Submitting several rows creates and undoes them as one engine action.
     #[test]
     fn create_submits_every_row_and_undo_removes_the_whole_creation() {
         let mut h = harness();
@@ -532,6 +559,7 @@ mod tests {
         assert!(!h.state().engine.can_undo());
     }
 
+    /// The aggregate 128-track limit disables creation while leaving cancellation usable.
     #[test]
     fn too_many_tracks_disable_create_but_leave_cancel_available() {
         let mut h = harness();
