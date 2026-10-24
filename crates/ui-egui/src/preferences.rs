@@ -795,7 +795,7 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
 
     if ctx.input(|i| i.key_pressed(Key::Escape)) && !popup_was_open {
         action = Some(Action::Cancel);
-    } else if ctx.input(|i| i.key_pressed(Key::Enter)) && !typing {
+    } else if action.is_none() && ctx.input(|i| i.key_pressed(Key::Enter)) && !typing {
         action = Some(Action::Apply);
     }
 
@@ -1181,6 +1181,21 @@ mod tests {
         harness.run_steps(2);
 
         assert!(harness.state().ui.show_preferences);
+        assert_eq!(harness.state().ui.theme, ThemeMode::Dark);
+    }
+
+    /// Enter cannot replace a Cancel button action received in the same frame.
+    #[test]
+    fn enter_and_cancel_in_the_same_frame_discard_the_draft() {
+        let mut harness = preferences_harness(egui::vec2(1280.0, 1000.0));
+        harness.run_steps(4);
+        harness.state_mut().preferences.draft.as_mut().unwrap().theme = ThemeMode::Light;
+
+        harness.get_by_label("Cancel").click();
+        harness.key_press(Key::Enter);
+        harness.run_steps(2);
+
+        assert!(!harness.state().ui.show_preferences);
         assert_eq!(harness.state().ui.theme, ThemeMode::Dark);
     }
 
