@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use soundcraft_time::TimeFormat;
 use soundcraft_time::{GridValue, MAX_POSITION, NoteValue};
 
+/// Registers commands for saved zoom, ruler, counter, grid, and nudge state.
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(view "view.zoom_in", "Zoom In", [], Some("Cmd+]"), "{}", always, |e, _| zoom(e, 0.5, None)),

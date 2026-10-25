@@ -27,6 +27,7 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
     clip_effects(app, ctx);
 }
 
+/// Shows the latest session media health report when requested.
 fn audio_health(app: &mut SoundApp, ctx: &egui::Context) {
     let mut open = app.ui.show_audio_health;
     win(ctx, &mut open, "Session Media Health", vec2(620.0, 360.0), |ui| {
@@ -183,6 +184,7 @@ fn system_usage(app: &mut SoundApp, ctx: &egui::Context) {
     app.ui.show_system_usage = open;
 }
 
+/// Shows active background tasks and retains completed errors until dismissed.
 fn task_manager(app: &mut SoundApp, ctx: &egui::Context) {
     let mut open = app.ui.show_task_manager;
     win(ctx, &mut open, "Task Manager", vec2(320.0, 120.0), |ui| {

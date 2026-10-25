@@ -7,6 +7,7 @@ use crate::{Engine, Result, cmd};
 use serde_json::{Value, json};
 use soundcraft_model::{ChannelFormat, ClipContent, Group, GroupId, Playlist, Route, Session, Track, TrackHeight, TrackId, TrackKind};
 
+/// Registers commands that create, configure, select, and remove session tracks.
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(
