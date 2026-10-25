@@ -69,6 +69,7 @@ fn grid_lines_are_drawn_over_clips_while_shown() {
     }
 }
 
+/// Clips/Markers grid lines reach the timeline at memory-location boundaries.
 #[test]
 fn clips_markers_grid_draws_a_line_at_a_memory_location() {
     let mut app = SoundApp::new(soundcraft_engine::demo::demo_engine(), None, Services::default());

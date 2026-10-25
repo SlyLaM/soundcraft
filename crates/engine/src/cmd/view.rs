@@ -1,9 +1,9 @@
 //! View menu commands that change saved view state (zoom, rulers, counters, grid/nudge).
+use super::{CommandSpec, always, bad, bool_or, f32_or, f64_or, i64_or, position_param, str_param};
 
-use super::*;
-use crate::cmd;
-use serde_json::json;
-use soundcraft_time::{FeetFramesValue, GridScale, GridValue, NoteValue, TimeFormat, TimecodeValue};
+use crate::{Engine, Result, cmd};
+use serde_json::{Value, json};
+use soundcraft_time::{FeetFramesValue, GridScale, GridValue, MAX_POSITION, NoteValue, TimeFormat, TimecodeValue};
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
@@ -173,6 +173,7 @@ fn value_or_step(p: &Value, current: GridValue) -> Option<GridValue> {
     Some((0..step.unsigned_abs().min(16)).fold(current, |g, _| g.stepped(step > 0)))
 }
 
+/// Maps a counter format to the corresponding Grid/Nudge scale.
 fn grid_scale(format: TimeFormat) -> GridScale {
     match format {
         TimeFormat::BarsBeats => GridScale::BarsBeats,
@@ -183,6 +184,7 @@ fn grid_scale(format: TimeFormat) -> GridScale {
     }
 }
 
+/// Resolves an explicit value, a step, or a scale change while preserving the current increment.
 fn requested_grid_value(p: &Value, current: GridValue) -> Option<GridValue> {
     if p.get("value").is_some() || p.get("step").is_some() {
         return value_or_step(p, current);
@@ -236,7 +238,7 @@ pub fn grid_param(p: &Value, key: &str) -> Option<GridValue> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use soundcraft_time::Samples;
     #[test]
     fn grid_values_parse() {
         assert_eq!(grid_param(&json!({"v": "1/16"}), "v"), Some(GridValue::Note { value: NoteValue::Sixteenth, dotted: false, triplet: false }));
@@ -323,6 +325,7 @@ mod tests {
         assert_eq!(e.session().edit.nudge.label(), "1/16 note");
     }
 
+    /// Grid and Nudge expose independent scale-following state, while Clips/Markers remains Grid-only.
     #[test]
     fn grid_and_nudge_choose_scales_follow_the_main_counter_and_keep_clips_markers_grid_only() {
         let mut e = Engine::default();

@@ -43,10 +43,40 @@ pub fn show(app: &mut SoundApp, ui: &mut Ui) {
         });
 }
 
+struct ModeCellState {
+    cur: EditMode,
+    snap: bool,
+    locked: bool,
+}
+
+fn edit_mode_tooltip(m: EditMode, locked: bool, cmd: &str, fkey: &str) -> String {
+    match m {
+        EditMode::Shuffle if locked => format!("Shuffle is locked ({cmd}-click to unlock)"),
+        EditMode::Shuffle => format!("Shuffle mode ({fkey}); {cmd}-click locks it out"),
+        EditMode::Grid => format!("Grid mode ({fkey}; again for Relative); Shift-click: Snap to Grid in the other modes"),
+        _ => format!("{} mode ({fkey}); Shift-click adds Snap to Grid", if m == EditMode::Slip { "Slip" } else { "Spot" }),
+    }
+}
+
+fn draw_mode_cell(p: &egui::Painter, cell: Rect, resp: &egui::Response, t: &Tokens, m: EditMode, state: &ModeCellState, label: &str) {
+    let on = state.cur == m || (m == EditMode::Grid && state.cur == EditMode::GridRelative);
+    key(p, cell, resp, if on { t.mode_on } else { t.mode_off });
+    let fg = if on { t.mode_on_text } else { t.mode_off_text };
+    if m == EditMode::Grid && state.snap {
+        p.rect_stroke(cell, 1.0, Stroke::new(1.5, t.mode_on), StrokeKind::Inside);
+    }
+    if m == EditMode::Shuffle && state.locked {
+        icons::draw(p, Rect::from_center_size(cell.center(), vec2(15.0, 15.0)), "lock", fg);
+    } else {
+        let txt = if m == EditMode::Grid && state.cur == EditMode::GridRelative { "REL GRID" } else { label };
+        p.text(cell.center(), Align2::CENTER_CENTER, txt, bold(10.5), fg);
+    }
+}
+
 fn edit_modes(app: &mut SoundApp, ui: &mut Ui) {
     let t = Tokens::current();
     let ed = &app.engine.session().edit;
-    let (cur, snap, locked) = (ed.edit_mode, ed.flag(SNAP_TO_GRID), ed.flag(SHUFFLE_LOCK));
+    let state = ModeCellState { cur: ed.edit_mode, snap: ed.flag(SNAP_TO_GRID), locked: ed.flag(SHUFFLE_LOCK) };
     let cmd = crate::shortcuts::shortcut_label("Cmd", ui.ctx().os() == egui::os::OperatingSystem::Mac);
     let modes = [
         (EditMode::Shuffle, 0, 0, "SHUFFLE", "F1"),
@@ -63,28 +93,13 @@ fn edit_modes(app: &mut SoundApp, ui: &mut Ui) {
         for (m, cx, cy, label, fkey) in modes {
             let cell = Rect::from_min_size(pos2(inner.min.x + cw * cx as f32, inner.min.y + ch * cy as f32), vec2(cw, ch)).shrink(1.0);
             let resp = ui.interact(cell, ui.id().with(("mode", label)), Sense::click());
-            let on = cur == m || (m == EditMode::Grid && cur == EditMode::GridRelative);
-            key(ui.painter(), cell, &resp, if on { t.mode_on } else { t.mode_off });
-            let fg = if on { t.mode_on_text } else { t.mode_off_text };
-            if m == EditMode::Grid && snap {
-                ui.painter().rect_stroke(cell, 1.0, Stroke::new(1.5, t.mode_on), StrokeKind::Inside);
-            }
-            if m == EditMode::Shuffle && locked {
-                icons::draw(ui.painter(), Rect::from_center_size(cell.center(), vec2(15.0, 15.0)), "lock", fg);
-            } else {
-                let txt = if m == EditMode::Grid && cur == EditMode::GridRelative { "REL GRID" } else { label };
-                ui.painter().text(cell.center(), Align2::CENTER_CENTER, txt, bold(10.5), fg);
-            }
+            draw_mode_cell(ui.painter(), cell, &resp, &t, m, &state, label);
+            let on = state.cur == m || (m == EditMode::Grid && state.cur == EditMode::GridRelative);
             resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, on, label));
             if resp.clicked() {
                 mode_click(app, m, ui.input(|i| i.modifiers));
             }
-            resp.on_hover_text(match m {
-                EditMode::Shuffle if locked => format!("Shuffle is locked ({cmd}-click to unlock)"),
-                EditMode::Shuffle => format!("Shuffle mode ({fkey}); {cmd}-click locks it out"),
-                EditMode::Grid => format!("Grid mode ({fkey}; again for Relative); Shift-click: Snap to Grid in the other modes"),
-                _ => format!("{} mode ({fkey}); Shift-click adds Snap to Grid", if m == EditMode::Slip { "Slip" } else { "Spot" }),
-            });
+            resp.on_hover_text(edit_mode_tooltip(m, state.locked, &cmd, fkey));
         }
     });
 }
@@ -296,6 +311,7 @@ fn grid_nudge(app: &mut SoundApp, ui: &mut Ui) {
     }
 }
 
+/// Formats a Grid/Nudge increment in the compact counter style for its time scale.
 fn compact_grid_label(session: &Session, value: GridValue) -> String {
     match value {
         GridValue::Note { value, dotted, triplet } => {
@@ -345,11 +361,13 @@ fn compact_grid_label(session: &Session, value: GridValue) -> String {
     }
 }
 
+/// Draws the musical symbol beside a compact Bars|Beats value.
 fn draw_compact_note_icon(painter: &Painter, rect: Rect, value: GridValue, color: Color32) {
     let GridValue::Note { value, dotted, triplet } = value else { return };
     draw_note_value_icon(painter, Rect::from_min_size(pos2(rect.min.x + 1.0, rect.min.y + 2.0), vec2(14.0, 16.0)), value, dotted, triplet, color);
 }
 
+/// Draws a musical duration and its optional dotted or triplet modifier.
 fn draw_note_value_icon(painter: &Painter, rect: Rect, value: NoteValue, dotted: bool, triplet: bool, color: Color32) {
     let stroke = Stroke::new(1.2, color);
     let head = pos2(rect.min.x + 4.0, rect.max.y - 3.5);
@@ -388,6 +406,7 @@ fn draw_note_value_icon(painter: &Painter, rect: Rect, value: NoteValue, dotted:
     }
 }
 
+/// Shows the complete Grid or Nudge increment, scale, and follow-mode menu.
 fn value_menu(app: &mut SoundApp, resp: &egui::Response, cmd: &str, current: GridValue, follow_main: bool, clips_markers: bool, allow_clips: bool) {
     egui::Popup::menu(resp).show(|ui| {
         ui.set_min_width(210.0);
@@ -477,6 +496,7 @@ fn value_menu(app: &mut SoundApp, resp: &egui::Response, cmd: &str, current: Gri
     });
 }
 
+/// Adds one text menu value and dispatches its command when selected.
 fn menu_value(ui: &mut Ui, app: &mut SoundApp, cmd: &str, selected: bool, label: &str, value: serde_json::Value) {
     if ui.selectable_label(selected, label).clicked() {
         let _ = app.run(cmd, json!({"value": value}));
@@ -484,6 +504,7 @@ fn menu_value(ui: &mut Ui, app: &mut SoundApp, cmd: &str, selected: bool, label:
     }
 }
 
+/// Adds one musical value with its duration symbol.
 fn menu_note_value(ui: &mut Ui, app: &mut SoundApp, cmd: &str, selected: bool, note: NoteValue, value: serde_json::Value) {
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
@@ -492,6 +513,7 @@ fn menu_note_value(ui: &mut Ui, app: &mut SoundApp, cmd: &str, selected: bool, n
     });
 }
 
+/// Adds a dotted or triplet modifier with its compact symbol.
 fn menu_modifier(ui: &mut Ui, app: &mut SoundApp, cmd: &str, selected: bool, label: &str, symbol: &str, value: serde_json::Value) {
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
@@ -528,7 +550,8 @@ fn transport(app: &mut SoundApp, ui: &mut Ui) {
                 let (r, resp) = ui.allocate_exact_size(vec2(38.0, 28.0), Sense::click());
                 key(ui.painter(), r, &resp, if recording { Color32::from_rgb(110, 30, 30) } else { key_fill(&resp) });
                 icons::draw(ui.painter(), r.shrink(5.0), "record", t.rec);
-                let resp = resp.on_hover_text("Record (Cmd+Space)");
+                // macOS gives Cmd+Space to Spotlight unless the user frees it, so name F12 first.
+                let resp = resp.on_hover_text("Record (F12 or Cmd+Space)");
                 if let Some(why) = app.record_hint() {
                     // Below the whole group, so the hint covers none of its buttons.
                     let below = Rect::from_min_max(r.min, pos2(r.max.x, g.max.y));
@@ -631,6 +654,7 @@ mod tests {
     use crate::Services;
     use egui_kittest::{Harness, kittest::Queryable};
 
+    /// Builds a compact Grid/Nudge toolbar test harness.
     fn harness() -> Harness<'static, SoundApp> {
         let app = SoundApp::new(soundcraft_engine::Engine::default(), None, Services::default());
         let mut harness = Harness::builder().with_size(vec2(700.0, 700.0)).build_ui_state(
@@ -649,11 +673,13 @@ mod tests {
         harness
     }
 
+    /// Opens a toolbar value menu and lets the popup settle.
     fn open(harness: &mut Harness<SoundApp>, label: &str) {
         harness.get_by_label(label).click();
         harness.run_steps(3);
     }
 
+    /// Compact values use their corresponding counter formats and symbols.
     #[test]
     fn compact_grid_values_use_their_counter_formats() {
         let session = Session::default();
@@ -667,6 +693,7 @@ mod tests {
         assert_eq!(compact_grid_label(&session, GridValue::Samples(10_000)), "10000");
     }
 
+    /// The Grid menu exposes every scale and retains its numeric value in Clips/Markers mode.
     #[test]
     fn grid_menu_exposes_each_scale_and_keeps_the_increment_in_clips_markers_mode() {
         let mut harness = harness();
@@ -694,6 +721,7 @@ mod tests {
         assert!(edit.grid_clips_markers);
     }
 
+    /// The Nudge menu exposes every numeric scale without the Grid-only Clips/Markers mode.
     #[test]
     fn nudge_menu_has_every_numeric_scale_but_no_clips_markers_mode() {
         let mut harness = harness();

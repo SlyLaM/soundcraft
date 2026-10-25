@@ -47,11 +47,14 @@ pub(crate) fn content(app: &mut SoundApp, ui: &mut Ui) {
     let ids: Vec<TrackId> = app.engine.session().tracks.iter().filter(|x| !x.hidden && x.kind != TrackKind::Video).map(|x| x.id).collect();
     // Per-channel peaks for multichannel meters (read once per frame).
     let snap = app.player.as_ref().filter(|_| app.meters_live()).map(|p| p.meters());
+    // Taken for this frame only: a strip that isn't drawn (hidden track) must not scroll the Mix
+    // whenever it comes back. A request made during this frame (the strip's menu) waits for the next.
+    let scroll_to = app.mix_scroll_into_view.take();
     egui::ScrollArea::horizontal().auto_shrink([false, false]).show(ui, |ui| {
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = 1.0;
             for id in ids {
-                strip(app, ui, id, snap.as_ref());
+                strip(app, ui, id, snap.as_ref(), scroll_to == Some(id));
             }
             let rest = Rect::from_min_max(pos2(ui.cursor().min.x, ui.clip_rect().min.y), ui.clip_rect().max);
             if rest.width() > 4.0 && ui.interact(rest, ui.id().with("past_strips"), Sense::click()).double_clicked() {
@@ -149,7 +152,7 @@ pub(crate) fn route_popup(app: &mut SoundApp, resp: &egui::Response, id: TrackId
     egui::Popup::menu(resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| route_menu(app, ui, id, input));
 }
 
-fn strip(app: &mut SoundApp, ui: &mut Ui, id: TrackId, snap: Option<&MeterSnapshot>) {
+fn strip(app: &mut SoundApp, ui: &mut Ui, id: TrackId, snap: Option<&MeterSnapshot>, scroll_here: bool) {
     let t = Tokens::current();
     let session = app.engine.session_arc();
     let Some(track) = session.track(id) else { return };
@@ -157,6 +160,12 @@ fn strip(app: &mut SoundApp, ui: &mut Ui, id: TrackId, snap: Option<&MeterSnapsh
     let w = strip_width(narrow);
     let h = ui.available_height().max(560.0);
     let (r, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
+    if scroll_here {
+        // egui stops `item_spacing` short of the edge (the scroll area's, not the strips' 1 pt),
+        // which would leave a sliver of the previous strip showing.
+        let margin = ui.ctx().global_style().spacing.item_spacing.x;
+        ui.scroll_to_rect(r.translate(vec2(margin, 0.0)), Some(egui::Align::Min));
+    }
     let selected = app.engine.session().edit.selected_tracks.contains(&id);
     let bg = if selected { t.strip_selected } else { t.strip_bg };
     vgradient(ui.painter(), r, shade(bg, 0.06), bg);
@@ -620,7 +629,7 @@ pub fn plugin_menu(app: &mut SoundApp, ui: &mut Ui, id: TrackId, slot: usize, oc
     let search = MenuSearch::show(ui, egui::Id::new(("plugin-search", id.0, slot)), "Search plugins…");
     if search.typing() {
         if let Some(plugin) = plugin_search(ui, &search, false) {
-            run_pick(app, ui, "mix.insert", json!({"track": id.0, "slot": slot, "plugin": plugin}));
+            pick_insert(app, ui, id, slot, &plugin);
         }
         return;
     }
@@ -643,13 +652,13 @@ pub fn plugin_menu(app: &mut SoundApp, ui: &mut Ui, id: TrackId, slot: usize, oc
         ui.menu_button(format!("{c:?}"), |ui| {
             for p in soundcraft_dsp::plugins().iter().filter(|p| p.category == c && !p.is_instrument) {
                 if ui.button(p.name).clicked() {
-                    run_pick(app, ui, "mix.insert", json!({"track": id.0, "slot": slot, "plugin": p.id}));
+                    pick_insert(app, ui, id, slot, p.id);
                 }
             }
         });
     }
     if let Some(plugin) = hosted_menus(ui, false) {
-        run_pick(app, ui, "mix.insert", json!({"track": id.0, "slot": slot, "plugin": plugin}));
+        pick_insert(app, ui, id, slot, &plugin);
     }
 }
 
@@ -705,6 +714,16 @@ pub fn instrument_menu(app: &mut SoundApp, ui: &mut Ui, id: TrackId) {
     if let Some(plugin) = picked {
         run_pick(app, ui, "mix.instrument", json!({"track": id.0, "plugin": plugin}));
     }
+}
+
+/// Inserts the plugin picked in an insert's menu and, as DAWs do, opens it once the audio engine has
+/// it (`SoundApp::open_inserted`).
+fn pick_insert(app: &mut SoundApp, ui: &Ui, id: TrackId, slot: usize, plugin: &str) {
+    match app.run("mix.insert", json!({"track": id.0, "slot": slot, "plugin": plugin})) {
+        Ok(_) => app.pending_open = Some((id, slot)),
+        Err(e) => app.ui.status = e,
+    }
+    ui.close();
 }
 
 /// Runs a menu's pick, shows its error in the status line and closes the menu.
@@ -1237,10 +1256,14 @@ fn send_route_menu(app: &mut SoundApp, ui: &mut Ui, id: TrackId, slot: usize, cu
     ui.separator();
     if ui.button("new bus...").clicked() {
         let mut n = busses.len() + 1;
-        while busses.iter().any(|bus| bus.name == format!("Bus {n}")) || app.engine.session().track_by_name(&format!("Bus {n}")).is_some() {
+        while busses.iter().any(|bus| bus.name.eq_ignore_ascii_case(&format!("Bus {n}")))
+            || app.engine.session().track_by_name(&format!("Bus {n}")).is_some()
+        {
             n += 1;
         }
-        let _ = app.run("mix.send", json!({"track": id.0, "slot": slot, "bus": format!("Bus {n}")}));
+        if app.run("mix.new_bus", json!({"name": format!("Bus {n}")})).is_ok() {
+            let _ = app.run("mix.send", json!({"track": id.0, "slot": slot, "bus": format!("Bus {n}")}));
+        }
         ui.close();
     }
 }

@@ -16,6 +16,7 @@ pub enum NoteValue {
 }
 
 impl NoteValue {
+    /// Every musical increment in menu order, from largest to smallest.
     pub const ALL: [NoteValue; 8] = [
         NoteValue::Bar,
         NoteValue::Whole,
@@ -26,6 +27,7 @@ impl NoteValue {
         NoteValue::ThirtySecond,
         NoteValue::SixtyFourth,
     ];
+    /// Returns the nominal tick length; bars are adjusted for the active meter when used.
     pub fn ticks(self) -> i64 {
         match self {
             NoteValue::Bar => TICKS_PER_QUARTER * 4,
@@ -38,6 +40,7 @@ impl NoteValue {
             NoteValue::SixtyFourth => TICKS_PER_QUARTER / 16,
         }
     }
+    /// Returns the menu label for this musical increment.
     pub fn label(self) -> &'static str {
         match self {
             NoteValue::Bar => "1 bar",
@@ -64,8 +67,10 @@ pub enum GridScale {
 }
 
 impl GridScale {
+    /// Numeric time scales shared by Grid and Nudge.
     pub const TIME: [GridScale; 5] = [GridScale::BarsBeats, GridScale::MinSecs, GridScale::Timecode, GridScale::FeetFrames, GridScale::Samples];
 
+    /// Returns the user-facing scale label.
     pub fn label(self) -> &'static str {
         match self {
             GridScale::BarsBeats => "Bars|Beats",
@@ -77,6 +82,7 @@ impl GridScale {
         }
     }
 
+    /// Returns the stable command and session identifier.
     pub fn id(self) -> &'static str {
         match self {
             GridScale::BarsBeats => "bars_beats",
@@ -88,6 +94,7 @@ impl GridScale {
         }
     }
 
+    /// Parses a stable identifier or user-facing label.
     pub fn from_id(id: &str) -> Option<GridScale> {
         Self::TIME.into_iter().chain([GridScale::ClipsMarkers]).find(|scale| scale.id() == id || scale.label().eq_ignore_ascii_case(id))
     }
@@ -105,6 +112,7 @@ pub enum TimecodeValue {
 }
 
 impl TimecodeValue {
+    /// Every Timecode increment in menu order, from largest to smallest.
     pub const ALL: [TimecodeValue; 6] = [
         TimecodeValue::Second,
         TimecodeValue::FiveFrames,
@@ -114,6 +122,7 @@ impl TimecodeValue {
         TimecodeValue::SubFrame,
     ];
 
+    /// Returns the user-facing increment label.
     pub fn label(self) -> &'static str {
         match self {
             TimecodeValue::Second => "1 second",
@@ -125,6 +134,7 @@ impl TimecodeValue {
         }
     }
 
+    /// Returns the stable command and session identifier.
     pub fn id(self) -> &'static str {
         match self {
             TimecodeValue::Second => "second",
@@ -136,10 +146,12 @@ impl TimecodeValue {
         }
     }
 
+    /// Parses a stable identifier or user-facing label.
     pub fn from_id(id: &str) -> Option<TimecodeValue> {
         Self::ALL.into_iter().find(|value| value.id() == id || value.label().eq_ignore_ascii_case(id))
     }
 
+    /// Returns the increment length in frames at the session rate.
     fn frames(self, rate: FrameRate) -> f64 {
         match self {
             TimecodeValue::Second => rate.nominal() as f64,
@@ -162,8 +174,10 @@ pub enum FeetFramesValue {
 }
 
 impl FeetFramesValue {
+    /// Every Feet+Frames increment in menu order, from largest to smallest.
     pub const ALL: [FeetFramesValue; 4] = [FeetFramesValue::Foot, FeetFramesValue::Frame, FeetFramesValue::QuarterFrame, FeetFramesValue::SubFrame];
 
+    /// Returns the user-facing increment label.
     pub fn label(self) -> &'static str {
         match self {
             FeetFramesValue::Foot => "1 foot",
@@ -173,6 +187,7 @@ impl FeetFramesValue {
         }
     }
 
+    /// Returns the stable command and session identifier.
     pub fn id(self) -> &'static str {
         match self {
             FeetFramesValue::Foot => "foot",
@@ -182,10 +197,12 @@ impl FeetFramesValue {
         }
     }
 
+    /// Parses a stable identifier or user-facing label.
     pub fn from_id(id: &str) -> Option<FeetFramesValue> {
         Self::ALL.into_iter().find(|value| value.id() == id || value.label().eq_ignore_ascii_case(id))
     }
 
+    /// Returns the increment length in frames.
     fn frames(self) -> f64 {
         match self {
             FeetFramesValue::Foot => 16.0,
@@ -221,6 +238,7 @@ impl Default for GridValue {
 }
 
 impl GridValue {
+    /// Returns the user-facing label for this increment.
     pub fn label(&self) -> String {
         match self {
             GridValue::Note { value, dotted, triplet } => {
@@ -247,6 +265,7 @@ impl GridValue {
         }
     }
 
+    /// Returns the time scale to which this increment belongs.
     pub fn scale(self) -> GridScale {
         match self {
             GridValue::Note { .. } => GridScale::BarsBeats,
@@ -257,6 +276,7 @@ impl GridValue {
         }
     }
 
+    /// Returns the default increment for a newly selected time scale.
     pub fn for_scale(scale: GridScale) -> GridValue {
         match scale {
             GridScale::BarsBeats => GridValue::default(),
@@ -341,15 +361,72 @@ impl GridValue {
                 let k = (t - bar_tick).div_euclid(step);
                 map.tick_to_samples(bar_tick + k * step, sr)
             }
-            _ => {
-                let step = self.step_samples(pos, sr, map, rate);
-                pos.div_euclid(step).saturating_mul(step)
+            _ => self.abs_line(self.abs_index_at_or_before(pos, sr, rate), sr, rate),
+        }
+    }
+
+    /// Position of absolute grid line `k` (Seconds, Frames, Samples), at an exact multiple of the step
+    /// rounded once, so rounding never accumulates from line to line.
+    fn abs_line(&self, k: i64, sr: SampleRate, rate: FrameRate) -> Samples {
+        if let Some(frames) = self.frame_step(rate) {
+            let whole = frames.round();
+            if frames == whole {
+                return rate.samples_at_frame(k.saturating_mul(whole as i64), sr);
             }
+            let step = (rate.samples_per_frame(sr) * frames).max(1.0);
+            return to_samples(k as f64 * step);
+        }
+        match *self {
+            GridValue::Seconds(s) => to_samples(k as f64 * Self::seconds_step(s, sr)),
+            GridValue::Samples(n) => k.saturating_mul(n.max(1)),
+            GridValue::Note { .. } => 0,
+            GridValue::Frames(_) | GridValue::Timecode(_) | GridValue::FeetFrames(_) => 0,
+        }
+    }
+
+    /// Index of the absolute grid line at or before `pos`.
+    fn abs_index_at_or_before(&self, pos: Samples, sr: SampleRate, rate: FrameRate) -> i64 {
+        let mut k = if let Some(frames) = self.frame_step(rate) {
+            let step = (rate.samples_per_frame(sr) * frames).max(1.0);
+            (pos as f64 / step).floor() as i64
+        } else {
+            match *self {
+                GridValue::Seconds(s) => (pos as f64 / Self::seconds_step(s, sr)).floor() as i64,
+                GridValue::Samples(n) => return pos.div_euclid(n.max(1)),
+                GridValue::Note { .. } => return 0,
+                GridValue::Frames(_) | GridValue::Timecode(_) | GridValue::FeetFrames(_) => return 0,
+            }
+        };
+        // Lines are rounded to whole samples, so the floored index can be one off either way.
+        if self.abs_line(k, sr, rate) > pos {
+            k = k.saturating_sub(1);
+        } else if self.abs_line(k.saturating_add(1), sr, rate) <= pos {
+            k = k.saturating_add(1);
+        }
+        k
+    }
+
+    /// The exact (fractional) Seconds step in samples, at least one sample.
+    fn seconds_step(s: f64, sr: SampleRate) -> f64 {
+        (s.clamp(0.000_01, 3600.0) * sr.as_f64()).max(1.0)
+    }
+
+    /// A frame-based increment as a possibly fractional number of frames.
+    fn frame_step(&self, rate: FrameRate) -> Option<f64> {
+        match *self {
+            GridValue::Frames(frames) => Some(frames.clamp(1, 1_000_000) as f64),
+            GridValue::Timecode(value) => Some(value.frames(rate)),
+            GridValue::FeetFrames(value) => Some(value.frames()),
+            _ => None,
         }
     }
 
     /// The first grid line strictly after `line`.
     pub fn next_line(&self, line: Samples, sr: SampleRate, map: &TempoMap, rate: FrameRate) -> Samples {
+        if !matches!(self, GridValue::Note { .. }) {
+            let next = self.abs_line(self.abs_index_at_or_before(line, sr, rate).saturating_add(1), sr, rate);
+            return if next > line { next } else { line.saturating_add(1) };
+        }
         let step = self.step_samples(line, sr, map, rate);
         let candidate = self.line_at_or_before(line.saturating_add(step), sr, map, rate);
         if candidate > line { candidate } else { line.saturating_add(step) }
@@ -373,6 +450,7 @@ impl GridValue {
     }
 }
 
+/// Moves one position through an ordered increment menu without wrapping.
 fn step_enum<T: Copy + PartialEq>(values: &[T], value: T, larger: bool) -> Option<T> {
     let index = values.iter().position(|candidate| *candidate == value)?;
     let next = if larger { index.checked_sub(1) } else { index.checked_add(1) }?;
@@ -420,12 +498,65 @@ mod tests {
         assert_eq!(GridValue::Samples(0).step_samples(0, sr, &map, rate), 1);
     }
 
+    /// Bar length follows the meter while a whole note always spans four quarter notes.
     #[test]
     fn a_bar_and_a_whole_note_differ_in_three_four() {
         let (sr, map, rate) = (SampleRate::HZ_48000, TempoMap::new(120.0, 3, 4).unwrap(), FrameRate::Fps25);
         let note = |value| GridValue::Note { value, dotted: false, triplet: false };
         assert_eq!(note(NoteValue::Bar).step_samples(0, sr, &map, rate), 72_000);
         assert_eq!(note(NoteValue::Whole).step_samples(0, sr, &map, rate), 96_000);
+    }
+
+    #[test]
+    fn seconds_grid_lines_land_on_whole_seconds() {
+        let (sr, map, rate) = (SampleRate::HZ_44100, TempoMap::default(), FrameRate::Fps30);
+        for g in [GridValue::Seconds(0.001), GridValue::Seconds(0.01)] {
+            for n in 0..20 {
+                let s = n * 44_100;
+                assert_eq!(g.snap(s, sr, &map, rate), s, "{g:?} at {n} s");
+                assert_eq!(g.line_at_or_before(s, sr, &map, rate), s, "{g:?} at {n} s");
+            }
+        }
+    }
+
+    #[test]
+    fn frame_grid_lines_land_on_frame_starts() {
+        let sr = SampleRate::HZ_48000;
+        let map = TempoMap::default();
+        for rate in [FrameRate::Fps29_97, FrameRate::Fps23_976] {
+            for f in [1, 10] {
+                let g = GridValue::Frames(f);
+                for k in (0..5000).step_by(37) {
+                    let s = rate.samples_at_frame(k, sr);
+                    let line = rate.samples_at_frame(k.div_euclid(f) * f, sr);
+                    assert_eq!(g.line_at_or_before(s, sr, &map, rate), line, "{rate:?} {f} frames at frame {k}");
+                    if k % f == 0 {
+                        assert_eq!(g.snap(s, sr, &map, rate), s, "{rate:?} {f} frames at frame {k}");
+                    }
+                }
+                let start = rate.samples_at_frame(4000, sr);
+                let end = rate.samples_at_frame(4000 + 20 * f, sr);
+                let want: Vec<_> = (0..20).map(|i| rate.samples_at_frame(4000 + i * f, sr)).collect();
+                assert_eq!(g.lines(start, end, sr, &map, rate, 100), want, "{rate:?} {f} frames");
+            }
+        }
+    }
+
+    /// Named whole- and sub-frame grids retain the exact-multiple calculation used by legacy frame grids.
+    #[test]
+    fn named_frame_grids_land_on_exact_subdivisions() {
+        let sr = SampleRate::HZ_48000;
+        let map = TempoMap::default();
+        let grids = TimecodeValue::ALL.into_iter().map(GridValue::Timecode).chain(FeetFramesValue::ALL.into_iter().map(GridValue::FeetFrames));
+        for rate in [FrameRate::Fps29_97, FrameRate::Fps23_976] {
+            for grid in grids.clone() {
+                for index in 0..200 {
+                    let line = grid.abs_line(index, sr, rate);
+                    assert_eq!(grid.line_at_or_before(line, sr, &map, rate), line, "{grid:?} {rate:?} line {index}");
+                    assert_eq!(grid.next_line(line, sr, &map, rate), grid.abs_line(index + 1, sr, rate), "{grid:?} {rate:?} line {index}");
+                }
+            }
+        }
     }
 
     #[test]
