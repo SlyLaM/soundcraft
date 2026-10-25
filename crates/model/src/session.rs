@@ -510,7 +510,7 @@ impl Session {
         if keep(0) {
             points.push(0);
         }
-        for clip in self.tracks.iter().flat_map(|track| track.clips()) {
+        for clip in self.tracks.iter().filter(|track| !track.hidden).flat_map(|track| track.clips()) {
             points.extend([clip.start, clip.end()].into_iter().filter(|point| keep(*point)));
         }
         for marker in &self.markers {
@@ -832,6 +832,12 @@ mod tests {
         let track = s.add_track(TrackKind::Midi, ChannelFormat::Mono, None);
         let clip = Clip::midi(s.new_clip_id(), "Notes", 1_000, 2_000, soundcraft_midi::Sequence::default());
         s.track_mut(track).and_then(Track::playlist_mut).unwrap().clips.push(clip);
+        let hidden = s.add_track(TrackKind::Midi, ChannelFormat::Mono, None);
+        let hidden_clip = Clip::midi(s.new_clip_id(), "Hidden", 3_200, 100, soundcraft_midi::Sequence::default());
+        if let Some(track) = s.track_mut(hidden) {
+            track.hidden = true;
+            track.playlist_mut().unwrap().clips.push(hidden_clip);
+        }
         s.add_marker("Cue", MarkerKind::Marker, 2_500, 2_500);
         s.add_marker("Selection", MarkerKind::Selection, 4_000, 4_500);
         s.edit.grid_clips_markers = true;
@@ -841,6 +847,7 @@ mod tests {
         assert_eq!(s.snap_to_grid(2_800), 3_000);
         assert_eq!(s.snap_to_grid(3_700), 4_000);
         assert_eq!(s.grid_lines(2_400, 4_100, 2), [2_500, 3_000]);
+        assert_eq!(s.snap_to_grid(3_200), 3_000);
     }
 
     #[test]

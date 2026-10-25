@@ -419,6 +419,11 @@ fn value_menu(app: &mut SoundApp, resp: &egui::Response, cmd: &str, current: Gri
                     GridValue::Note { value, .. } => value,
                     _ => NoteValue::Sixteenth,
                 };
+                let suffix = match current {
+                    GridValue::Note { dotted: true, .. } => ".",
+                    GridValue::Note { triplet: true, .. } => "t",
+                    _ => "",
+                };
                 for value in NoteValue::ALL {
                     let id = match value {
                         NoteValue::Bar => "1 bar",
@@ -430,7 +435,7 @@ fn value_menu(app: &mut SoundApp, resp: &egui::Response, cmd: &str, current: Gri
                         NoteValue::ThirtySecond => "1/32",
                         NoteValue::SixtyFourth => "1/64",
                     };
-                    menu_note_value(ui, app, cmd, selected == value, value, json!(id));
+                    menu_note_value(ui, app, cmd, selected == value, value, json!(format!("{id}{suffix}")));
                 }
                 ui.separator();
                 let (value, dotted, triplet) = match current {
@@ -723,6 +728,18 @@ mod tests {
         let edit = &harness.state().engine.session().edit;
         assert_eq!(edit.grid, GridValue::Timecode(TimecodeValue::QuarterFrame));
         assert!(edit.grid_clips_markers);
+    }
+
+    /// Selecting another musical increment preserves the active dotted or triplet modifier.
+    #[test]
+    fn note_menu_keeps_the_current_modifier_when_changing_value() {
+        let mut harness = harness();
+        harness.state_mut().run("view.grid", json!({"value": "1/8t"})).unwrap();
+        harness.run_steps(3);
+        open(&mut harness, "Grid menu");
+        harness.get_by_label("1/16 note").click();
+        harness.run_steps(3);
+        assert_eq!(harness.state().engine.session().edit.grid, GridValue::Note { value: NoteValue::Sixteenth, dotted: false, triplet: true });
     }
 
     /// The Nudge menu exposes every numeric scale without the Grid-only Clips/Markers mode.

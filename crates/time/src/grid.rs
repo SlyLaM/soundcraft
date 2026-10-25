@@ -1,6 +1,6 @@
 //! Grid and Nudge values: musical or absolute step sizes, grid lines and snapping.
 
-use crate::{FrameRate, SampleRate, Samples, TICKS_PER_QUARTER, TempoMap, to_samples};
+use crate::{FrameRate, SampleRate, Samples, TICKS_PER_QUARTER, TempoMap, Timecode, to_samples};
 
 /// Note values for Bars|Beats grids.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -370,6 +370,9 @@ impl GridValue {
     /// Position of absolute grid line `k` (Seconds, Frames, Samples), at an exact multiple of the step
     /// rounded once, so rounding never accumulates from line to line.
     fn abs_line(&self, k: i64, sr: SampleRate, rate: FrameRate) -> Samples {
+        if matches!(self, GridValue::Timecode(TimecodeValue::Second)) && rate.is_drop() {
+            return rate.samples_at_frame(Self::drop_second_frame(k, rate), sr);
+        }
         if let Some(frames) = self.frame_step(rate) {
             let whole = frames.round();
             if frames == whole {
@@ -388,6 +391,26 @@ impl GridValue {
 
     /// Index of the absolute grid line at or before `pos`.
     fn abs_index_at_or_before(&self, pos: Samples, sr: SampleRate, rate: FrameRate) -> i64 {
+        if matches!(self, GridValue::Timecode(TimecodeValue::Second)) && rate.is_drop() {
+            let tc = Timecode::from_frames(rate.frames_at(pos, sr), rate);
+            let magnitude = tc.hours.saturating_mul(3600).saturating_add(tc.minutes.saturating_mul(60)).saturating_add(tc.seconds);
+            let mut k = if tc.negative { magnitude.saturating_neg() } else { magnitude };
+            while self.abs_line(k, sr, rate) > pos {
+                let previous = k.saturating_sub(1);
+                if previous == k {
+                    break;
+                }
+                k = previous;
+            }
+            while self.abs_line(k.saturating_add(1), sr, rate) <= pos {
+                let next = k.saturating_add(1);
+                if next == k {
+                    break;
+                }
+                k = next;
+            }
+            return k;
+        }
         let mut k = if let Some(frames) = self.frame_step(rate) {
             let step = (rate.samples_per_frame(sr) * frames).max(1.0);
             (pos as f64 / step).floor() as i64
@@ -411,6 +434,19 @@ impl GridValue {
     /// The exact (fractional) Seconds step in samples, at least one sample.
     fn seconds_step(s: f64, sr: SampleRate) -> f64 {
         (s.clamp(0.000_01, 3600.0) * sr.as_f64()).max(1.0)
+    }
+
+    /// Maps a signed whole-second timecode label to its physical frame at a drop-frame rate.
+    fn drop_second_frame(index: i64, rate: FrameRate) -> i64 {
+        let seconds = index.unsigned_abs();
+        Timecode {
+            negative: index < 0,
+            hours: i64::try_from(seconds / 3600).unwrap_or(i64::MAX),
+            minutes: i64::try_from((seconds / 60) % 60).unwrap_or(0),
+            seconds: i64::try_from(seconds % 60).unwrap_or(0),
+            frames: 0,
+        }
+        .to_frames(rate)
     }
 
     /// A frame-based increment as a possibly fractional number of frames.
@@ -560,6 +596,30 @@ mod tests {
                     assert_eq!(grid.next_line(line, sr, &map, rate), grid.abs_line(index + 1, sr, rate), "{grid:?} {rate:?} line {index}");
                 }
             }
+        }
+    }
+
+    /// Drop-frame second grids follow labelled second boundaries in both timeline directions.
+    #[test]
+    fn drop_frame_second_grids_follow_timecode_labels() {
+        let sr = SampleRate::HZ_48000;
+        let map = TempoMap::default();
+        let grid = GridValue::Timecode(TimecodeValue::Second);
+        for rate in [FrameRate::Fps29_97Drop, FrameRate::Fps59_94Drop] {
+            for seconds in [0, 59, 60, 61, 600, 601, 3600] {
+                let frame = GridValue::drop_second_frame(seconds, rate);
+                let line = rate.samples_at_frame(frame, sr);
+                assert_eq!(grid.line_at_or_before(line, sr, &map, rate), line, "{rate:?} second {seconds}");
+                assert_eq!(grid.line_at_or_before(-line, sr, &map, rate), -line, "{rate:?} second -{seconds}");
+                for offset in -2..=rate.nominal() + 2 {
+                    let position = rate.samples_at_frame(frame.saturating_add(offset), sr);
+                    let before = grid.line_at_or_before(position, sr, &map, rate);
+                    assert!(before <= position, "{rate:?} second {seconds}, frame offset {offset}");
+                    assert!(grid.next_line(before, sr, &map, rate) > position, "{rate:?} second {seconds}, frame offset {offset}");
+                }
+            }
+            let labelled = Timecode { negative: false, hours: 0, minutes: 1, seconds: 1, frames: 0 }.to_samples(rate, sr);
+            assert_eq!(grid.snap(labelled, sr, &map, rate), labelled);
         }
     }
 
