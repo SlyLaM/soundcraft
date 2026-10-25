@@ -1,7 +1,7 @@
 //! Keyboard editing for the toolbar's position and selection counters.
 
 use soundcraft_model::Session;
-use soundcraft_time::{MAX_POSITION, Samples, TimeFormat, format_length, parse_position};
+use soundcraft_time::{MAX_POSITION, Samples, TimeFormat, Timecode, format_length, parse_position};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum CounterTarget {
@@ -22,14 +22,17 @@ pub(crate) struct CounterEdit {
 }
 
 impl CounterEdit {
+    /// Starts editing a counter value, either as a whole value or at one component.
     pub fn new(target: CounterTarget, format: TimeFormat, value: Samples, unit: Option<usize>) -> Self {
         CounterEdit { target, format, unit, value, typed: String::new(), calculation: None }
     }
 
+    /// Formats the current provisional value for the toolbar.
     pub fn display(&self, session: &Session) -> String {
         display(session, self.target, self.value, self.format)
     }
 
+    /// Appends a digit using right-to-left counter entry rules.
     pub fn digit(&mut self, session: &Session, digit: char) {
         if !digit.is_ascii_digit() {
             return;
@@ -77,11 +80,13 @@ impl CounterEdit {
         };
     }
 
+    /// Starts an addition or subtraction relative to the current value.
     pub fn begin_calculation(&mut self, direction: i64) {
         self.typed.clear();
         self.calculation = Some((direction.signum(), self.value));
     }
 
+    /// Increments or decrements the selected counter component.
     pub fn step(&mut self, session: &Session, direction: i64) {
         self.typed.clear();
         self.calculation = None;
@@ -89,12 +94,13 @@ impl CounterEdit {
         let mut parts = components(&shown, self.format);
         let unit = self.unit.unwrap_or_else(|| parts.len().saturating_sub(1));
         self.unit = Some(unit);
-        step_components(&mut parts, unit, direction, self.format, self.target, session);
+        step_components(&mut parts, unit, direction, self.format, self.target, self.value, session);
         normalize_component_mins(&mut parts, self.format, self.target);
         normalize_drop_frame_label(&mut parts, self.format, session);
         self.value = compose(session, self.target, self.format, &parts).clamp(0, MAX_POSITION);
     }
 
+    /// Selects the adjacent counter component without committing the edit.
     pub fn move_unit(&mut self, direction: i32, session: &Session) {
         self.typed.clear();
         self.calculation = None;
@@ -104,6 +110,7 @@ impl CounterEdit {
     }
 }
 
+/// Formats a counter value, treating selection lengths as durations.
 pub(crate) fn display(session: &Session, target: CounterTarget, value: Samples, format: TimeFormat) -> String {
     if target == CounterTarget::Length {
         format_length(session.edit.selection.start, value, format, session.sample_rate, &session.tempo, session.frame_rate)
@@ -112,6 +119,7 @@ pub(crate) fn display(session: &Session, target: CounterTarget, value: Samples, 
     }
 }
 
+/// Returns the byte ranges occupied by numeric components in formatted counter text.
 pub(crate) fn component_ranges(text: &str, format: TimeFormat) -> Vec<std::ops::Range<usize>> {
     if format == TimeFormat::Samples {
         let start = usize::from(text.starts_with('-'));
@@ -132,10 +140,12 @@ pub(crate) fn component_ranges(text: &str, format: TimeFormat) -> Vec<std::ops::
     ranges
 }
 
+/// Parses every numeric component from formatted counter text.
 fn components(text: &str, format: TimeFormat) -> Vec<i64> {
     component_ranges(text, format).iter().map(|range| text.get(range.clone()).and_then(|part| part.parse().ok()).unwrap_or(0)).collect()
 }
 
+/// Returns the entry width of each component for a time format.
 fn widths(format: TimeFormat, nominal_frames: i64) -> Vec<usize> {
     match format {
         TimeFormat::BarsBeats => vec![18, 2, 3],
@@ -146,10 +156,12 @@ fn widths(format: TimeFormat, nominal_frames: i64) -> Vec<usize> {
     }
 }
 
+/// Parses counter digits while saturating malformed or overflowing input.
 fn digits_value(text: &str) -> i64 {
     text.parse().unwrap_or(i64::MAX)
 }
 
+/// Distributes unseparated digits across counter components from right to left.
 fn right_aligned_components(digits: &str, widths: &[usize], count: usize) -> Vec<i64> {
     let mut parts = vec![0; count];
     let mut end = digits.len();
@@ -167,7 +179,8 @@ fn right_aligned_components(digits: &str, widths: &[usize], count: usize) -> Vec
     parts
 }
 
-fn step_components(parts: &mut [i64], unit: usize, direction: i64, format: TimeFormat, target: CounterTarget, session: &Session) {
+/// Steps one component and propagates any borrow or carry to larger units.
+fn step_components(parts: &mut [i64], unit: usize, direction: i64, format: TimeFormat, target: CounterTarget, value: Samples, session: &Session) {
     let original = parts.to_vec();
     if format == TimeFormat::Timecode && session.frame_rate.is_drop() && unit == 3 && direction < 0 {
         let dropped = if session.frame_rate.nominal() >= 60 { 4 } else { 2 };
@@ -189,8 +202,10 @@ fn step_components(parts: &mut [i64], unit: usize, direction: i64, format: TimeF
     if unit == 0 {
         return;
     }
-    let start_tick = session.tempo.samples_to_ticks(session.edit.selection.start, session.sample_rate);
-    let meter = session.tempo.meter_at_tick(start_tick);
+    // Lengths are relative to the selection start; position counters use their own location.
+    let meter_sample = if target == CounterTarget::Length { session.edit.selection.start } else { value };
+    let meter_tick = session.tempo.samples_to_ticks(meter_sample, session.sample_rate);
+    let meter = session.tempo.meter_at_tick(meter_tick);
     let bounds = |index: usize| -> Option<(i64, i64)> {
         match (format, index) {
             (TimeFormat::BarsBeats, 1) => {
@@ -225,6 +240,7 @@ fn step_components(parts: &mut [i64], unit: usize, direction: i64, format: TimeF
     }
 }
 
+/// Enforces the zero- or one-based minimums of formatted counter components.
 fn normalize_component_mins(parts: &mut [i64], format: TimeFormat, target: CounterTarget) {
     for part in parts.iter_mut() {
         *part = (*part).max(0);
@@ -239,6 +255,7 @@ fn normalize_component_mins(parts: &mut [i64], format: TimeFormat, target: Count
     }
 }
 
+/// Moves an entered drop-frame label to the first valid frame when necessary.
 fn normalize_drop_frame_label(parts: &mut [i64], format: TimeFormat, session: &Session) {
     if format != TimeFormat::Timecode || !session.frame_rate.is_drop() {
         return;
@@ -254,6 +271,7 @@ fn normalize_drop_frame_label(parts: &mut [i64], format: TimeFormat, session: &S
     }
 }
 
+/// Converts edited counter components back to an absolute position or duration.
 fn compose(session: &Session, target: CounterTarget, format: TimeFormat, parts: &[i64]) -> Samples {
     if target == CounterTarget::Length && format == TimeFormat::BarsBeats {
         let start_tick = session.tempo.samples_to_ticks(session.edit.selection.start, session.sample_rate);
@@ -271,13 +289,23 @@ fn compose(session: &Session, target: CounterTarget, format: TimeFormat, parts: 
         TimeFormat::FeetFrames => format!("{}+{:02}", part(parts, 0), part(parts, 1)),
         TimeFormat::Samples => part(parts, 0).to_string(),
     };
-    if target == CounterTarget::Length {
+    let value = if target == CounterTarget::Length {
         parse_position(&text, format, session.sample_rate, &session.tempo, session.frame_rate, 0, 0).unwrap_or(0)
     } else {
         session.parse_position(&text, format).unwrap_or(0)
+    };
+    if format == TimeFormat::Timecode
+        && let Ok(label) = Timecode::parse(&text)
+    {
+        let offset = if target == CounterTarget::Length { 0 } else { session.timecode_start };
+        let actual = session.frame_rate.frames_at(value.saturating_add(offset), session.sample_rate);
+        value.saturating_add(label.to_frames(session.frame_rate).saturating_sub(actual).signum())
+    } else {
+        value
     }
 }
 
+/// Reads a component, returning zero when the format does not provide it.
 fn part(parts: &[i64], index: usize) -> i64 {
     parts.get(index).copied().unwrap_or(0)
 }
@@ -378,5 +406,19 @@ mod tests {
             edit.digit(&session, digit);
         }
         assert_eq!(edit.display(&session), "0:09.000");
+    }
+
+    #[test]
+    fn main_counter_borrows_with_the_meter_at_its_own_position() {
+        let mut session = Session::default();
+        let bar_three = session.tempo.bar_start_tick(3);
+        session.tempo.set_meter(bar_three, 3, 4).unwrap();
+        session.edit.selection.start = session.tempo.samples_at_bar_beat(soundcraft_time::BarBeat { bar: 3, beat: 1, tick: 0 }, session.sample_rate);
+        let value = session.tempo.samples_at_bar_beat(soundcraft_time::BarBeat { bar: 2, beat: 1, tick: 0 }, session.sample_rate);
+        let mut edit = CounterEdit::new(CounterTarget::Main, TimeFormat::BarsBeats, value, Some(1));
+
+        edit.step(&session, -1);
+
+        assert_eq!(edit.display(&session), "1| 4| 000");
     }
 }

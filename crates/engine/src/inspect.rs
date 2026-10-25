@@ -37,7 +37,8 @@ pub fn media_online(s: &Session) -> (bool, bool) {
     (timeline, session)
 }
 
-fn video_source_online(source: &soundcraft_model::VideoSource) -> bool {
+/// Returns whether a referenced movie currently resolves to a file.
+pub(crate) fn video_source_online(source: &soundcraft_model::VideoSource) -> bool {
     !source.path.is_empty() && crate::io::file_found(&source.path)
 }
 

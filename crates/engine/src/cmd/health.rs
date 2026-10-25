@@ -1,14 +1,15 @@
 //! Media availability checks without decoding files or changing the session.
+use super::{CommandSpec, always};
 
-use super::*;
-use crate::cmd;
-use serde_json::json;
+use crate::{Engine, Result, cmd};
+use serde_json::{Value, json};
 use soundcraft_model::ClipContent;
 use std::collections::BTreeMap;
 
+/// Registers read-only session media diagnostics.
 pub fn specs() -> Vec<CommandSpec> {
     vec![
-        cmd!(query "session.audio_health", "Session Audio Health", [], None, "{}; checks all audio clips, including inactive playlists; no filesystem or signal analysis", always, report),
+        cmd!(query "session.audio_health", "Session Media Health", [], None, "{}; checks all audio clips, including inactive playlists, and referenced movies; no signal analysis", always, report),
         cmd!(query "session.media_status", "Session Media Status", [], None, "{}; reports whether active-playlist and complete-session media are online", always, |e, _| {
             let (timeline, session) = crate::inspect::media_online(e.session());
             Ok(json!({"timeline_online": timeline, "session_online": session}))
@@ -16,6 +17,57 @@ pub fn specs() -> Vec<CommandSpec> {
     ]
 }
 
+struct ClipContext<'a> {
+    track: &'a soundcraft_model::Track,
+    playlist: &'a soundcraft_model::Playlist,
+    active: bool,
+    session_sample_rate: u32,
+}
+
+/// Adds every media or bounds problem found for one audio clip.
+fn check_audio_clip(
+    ctx: &ClipContext<'_>,
+    clip: &soundcraft_model::Clip,
+    source: soundcraft_model::SourceId,
+    offset: i64,
+    metadata: Option<&soundcraft_model::Source>,
+    audio: Option<&soundcraft_model::SourceAudio>,
+    issues: &mut Vec<Value>,
+) {
+    let mut add = |code: &str, message: &str| {
+        issues.push(json!({"code": code, "message": message, "track": ctx.track.name, "track_id": ctx.track.id.0,
+            "playlist": ctx.playlist.name, "active": ctx.active, "clip": clip.name, "clip_id": clip.id.0,
+            "source_id": source.0, "path": metadata.map(|m| m.path.as_str())}));
+    };
+    if metadata.is_none() {
+        add("missing_source", "Source metadata is missing. Reimport the audio and replace this clip.");
+    }
+    let Some(audio) = audio else {
+        add("unavailable_audio", "Audio is not loaded; this clip will be silent. Restore the media and reopen the session, or reimport it.");
+        return;
+    };
+    if audio.buffer.sample_rate != ctx.session_sample_rate {
+        add("sample_rate_mismatch", "Loaded audio differs from the session sample rate. Reimport it to convert to the session rate.");
+    }
+    if audio.buffer.channels.is_empty() || audio.frames() == 0 {
+        add("empty_audio", "Loaded audio has no playable frames. Reimport a valid audio file.");
+        return;
+    }
+    if audio.buffer.channels.iter().any(|channel| channel.len() != audio.frames()) {
+        add("uneven_channels", "Loaded audio channels have different lengths. Reimport a valid audio file; bounds below use the shortest channel.");
+    }
+    if !clip.stretch.is_finite() || clip.stretch <= 0.0 || clip.length <= 0 {
+        add("invalid_clip", "Clip length or stretch is invalid. Replace this clip.");
+    }
+    let stretch = if clip.stretch.is_finite() && clip.stretch > 0.0 { clip.stretch } else { 1.0 };
+    // Match the mixer's last requested source sample, including elastic playback.
+    let last = offset as f64 + clip.length.saturating_sub(1).max(0) as f64 / stretch;
+    if offset < 0 || last >= audio.frames() as f64 {
+        add("source_bounds", "Clip extends outside the loaded audio; part will be silent. Trim the clip or replace its source.");
+    }
+}
+
+/// Builds a read-only health report for audio clips and referenced movies.
 fn report(e: &mut Engine, _: &Value) -> Result<Value> {
     let s = e.session();
     let sources: BTreeMap<_, _> = s.sources.iter().map(|source| (source.id, source)).collect();
@@ -28,58 +80,38 @@ fn report(e: &mut Engine, _: &Value) -> Result<Value> {
     for track in &s.tracks {
         for (index, playlist) in track.playlists.iter().enumerate() {
             let active = index == track.active_playlist;
+            let ctx = ClipContext { track, playlist, active, session_sample_rate: s.sample_rate.hz() };
             for clip in &playlist.clips {
                 let ClipContent::Audio { source, offset } = clip.content else { continue };
                 clips += 1;
                 if active {
                     active_end = active_end.max(clip.end());
                 }
-                let metadata = sources.get(&source);
-                let audio = s.pool.get(source);
-                let mut add = |code: &str, message: &str| {
-                    issues.push(json!({"code": code, "message": message, "track": track.name, "track_id": track.id.0,
-                        "playlist": playlist.name, "active": active, "clip": clip.name, "clip_id": clip.id.0,
-                        "source_id": source.0, "path": metadata.map(|m| m.path.as_str())}));
-                };
-                if metadata.is_none() {
-                    add("missing_source", "Source metadata is missing. Reimport the audio and replace this clip.");
-                }
-                let Some(audio) = audio else {
-                    add(
-                        "unavailable_audio",
-                        "Audio is not loaded; this clip will be silent. Restore the media and reopen the session, or reimport it.",
-                    );
-                    continue;
-                };
-                if audio.buffer.sample_rate != s.sample_rate.hz() {
-                    add("sample_rate_mismatch", "Loaded audio differs from the session sample rate. Reimport it to convert to the session rate.");
-                }
-                if audio.buffer.channels.is_empty() || audio.frames() == 0 {
-                    add("empty_audio", "Loaded audio has no playable frames. Reimport a valid audio file.");
-                    continue;
-                }
-                if audio.buffer.channels.iter().any(|channel| channel.len() != audio.frames()) {
-                    add(
-                        "uneven_channels",
-                        "Loaded audio channels have different lengths. Reimport a valid audio file; bounds below use the shortest channel.",
-                    );
-                }
-                if !clip.stretch.is_finite() || clip.stretch <= 0.0 || clip.length <= 0 {
-                    add("invalid_clip", "Clip length or stretch is invalid. Replace this clip.");
-                }
-                let stretch = if clip.stretch.is_finite() && clip.stretch > 0.0 { clip.stretch } else { 1.0 };
-                // Match the mixer's last requested source sample, including elastic playback.
-                let last = offset as f64 + clip.length.saturating_sub(1).max(0) as f64 / stretch;
-                if offset < 0 || last >= audio.frames() as f64 {
-                    add("source_bounds", "Clip extends outside the loaded audio; part will be silent. Trim the clip or replace its source.");
-                }
+                let metadata = sources.get(&source).copied();
+                let audio = s.pool.get(source).map(|a| a.as_ref());
+                check_audio_clip(&ctx, clip, source, offset, metadata, audio, &mut issues);
             }
         }
     }
-    Ok(json!({"audio_clips": clips, "active_audio_end_samples": active_end,
+    for source in &s.videos {
+        if !crate::inspect::video_source_online(source) {
+            let message = source.offline.as_deref().unwrap_or("Movie file is missing or unavailable. Relink the movie before playback.");
+            issues.push(json!({
+                "code": "unavailable_video",
+                "message": message,
+                "track": "Video",
+                "playlist": "",
+                "active": true,
+                "clip": source.name,
+                "source_id": source.id.0,
+                "path": source.path,
+            }));
+        }
+    }
+    Ok(json!({"audio_clips": clips, "video_sources": s.videos.len(), "active_audio_end_samples": active_end,
         "active_audio_end_seconds": (s.sample_rate.hz() != 0).then(|| active_end as f64 / f64::from(s.sample_rate.hz())),
         "issue_count": issues.len(), "healthy": issues.is_empty(), "issues": issues,
-        "scope": "All playlists; loaded audio availability and clip bounds only. Does not check files on disk, signal levels, plugins or routing."}))
+        "scope": "All playlists and referenced movies; loaded audio availability, clip bounds and movie file availability. Does not check signal levels, plugins or routing."}))
 }
 
 #[cfg(test)]
@@ -145,10 +177,15 @@ mod tests {
         });
         e.session_mut().track_mut(track).unwrap().playlist_mut().unwrap().clips.push(Clip::video(clip, "Picture", source, 0, 0, 48_000));
         assert_eq!(e.execute("session.media_status", &json!({})).unwrap()["timeline_online"], true);
-        std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(&path).unwrap();
         let status = e.execute("session.media_status", &json!({})).unwrap();
         assert_eq!(status["timeline_online"], false);
         assert_eq!(status["session_online"], false);
+        let report = check(&mut e);
+        assert_eq!(report["healthy"], false);
+        assert_eq!(report["video_sources"], 1);
+        assert_eq!(report["issues"][0]["code"], "unavailable_video");
+        assert_eq!(report["issues"][0]["path"], path.to_string_lossy().as_ref());
         std::fs::remove_dir(directory).unwrap();
     }
 
