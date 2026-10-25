@@ -22,6 +22,7 @@ fn near(a: [i32; 3], b: Color32) -> bool {
     a.iter().zip([b.r(), b.g(), b.b()]).all(|(x, y)| (x - i32::from(y)).abs() <= 6)
 }
 
+/// Numeric Grid lines retain their stacking order over clips in both themes.
 #[test]
 fn grid_lines_are_drawn_over_clips_while_shown() {
     let mut app = SoundApp::new(soundcraft_engine::demo::demo_engine(), None, Services::default());

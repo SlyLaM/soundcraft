@@ -337,6 +337,7 @@ pub(super) fn clipboard_for_paste(e: &mut Engine) -> Clipboard {
     cb
 }
 
+/// Pastes the clipboard at an explicit position or at the current edit insertion point.
 fn paste(e: &mut Engine, p: &Value) -> Result<Value> {
     let tracks = tracks_required(e, "edit.paste", p)?;
     let given = position_param(e, "edit.paste", p, "at")?;
@@ -670,6 +671,7 @@ fn separate(e: &mut Engine, p: &Value) -> Result<Value> {
     Ok(json!({"separated": n}))
 }
 
+/// Separates selected clips at every active Grid boundary in the requested range.
 fn separate_on_grid(e: &mut Engine, p: &Value) -> Result<Value> {
     let tracks = tracks_required(e, "edit.separate_on_grid", p)?;
     let r = range_param(e, "edit.separate_on_grid", p)?;

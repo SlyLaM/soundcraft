@@ -1585,6 +1585,7 @@ pub(crate) fn track_context_menu(app: &mut SoundApp, ui: &mut Ui, id: TrackId) {
     });
 }
 
+/// Draws active Grid boundaries across one visible edit lane.
 fn grid_lines(painter: &egui::Painter, s: &Session, tl: Rect, lane: Rect) {
     let t = Tokens::current();
     let view = Range::new(sample_at(s, tl, tl.min.x).max(0), sample_at(s, tl, tl.max.x));
@@ -2012,6 +2013,7 @@ fn plugin_range(track: &Track, p: &AutoParam) -> (f32, f32) {
 
 // ---- interaction -----------------------------------------------------------------------------
 
+/// Applies snapping when the current edit mode or Snap to Grid option enables it.
 fn snap(s: &Session, at: Samples) -> Samples {
     let on = s.edit.edit_mode.is_grid() || s.edit.flag(ops::SNAP_TO_GRID);
     if on { s.snap_to_grid(at) } else { at }

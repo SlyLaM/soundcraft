@@ -273,6 +273,7 @@ fn counters(app: &mut SoundApp, ui: &mut Ui) {
     ui.painter().text(pos2(r.max.x - 8.0, y), Align2::RIGHT_CENTER, format!("{st} · {dev}"), regular(10.0), t.text_dim);
 }
 
+/// Draws the compact Grid and Nudge readouts and their scale menus.
 fn grid_nudge(app: &mut SoundApp, ui: &mut Ui) {
     let t = Tokens::current();
     let (grid, nudge, lines, grid_follow, nudge_follow, clips_markers) = {
@@ -290,7 +291,9 @@ fn grid_nudge(app: &mut SoundApp, ui: &mut Ui) {
     }
     let gr = Rect::from_min_max(pos2(r.min.x + 60.0, r.min.y + 6.0), pos2(r.max.x - 4.0, r.min.y + 26.0));
     let grid_label = if clips_markers { GridScale::ClipsMarkers.label().to_string() } else { compact_grid_label(app.engine.session(), grid) };
-    draw_compact_note_icon(ui.painter(), gr, grid, t.counter_text);
+    if !clips_markers {
+        draw_compact_note_icon(ui.painter(), gr, grid, t.counter_text);
+    }
     ui.painter().text(pos2(gr.max.x - 14.0, gr.center().y), Align2::RIGHT_CENTER, grid_label, mono(11.0), t.counter_text);
     let gresp = ui.interact(gr, ui.id().with("grid_value"), Sense::click());
     value_menu(app, &gresp, "view.grid", grid, grid_follow, clips_markers, true);
@@ -638,6 +641,7 @@ fn tempo_value(app: &mut SoundApp, ui: &mut Ui, right: f32, y: f32, bpm: f64) {
     resp.on_hover_text("Drag to change the tempo (Shift: fine steps), or click to type it");
 }
 
+/// Draws the compact stereo main-output meter.
 fn output_meter(app: &mut SoundApp, ui: &mut Ui) {
     let (r, _) = ui.allocate_exact_size(vec2(26.0, 64.0), Sense::hover());
     let m = app.main_meter;

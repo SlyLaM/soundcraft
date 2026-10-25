@@ -232,6 +232,7 @@ pub enum GridValue {
 }
 
 impl Default for GridValue {
+    /// Starts on a straight sixteenth-note Bars|Beats grid.
     fn default() -> Self {
         GridValue::Note { value: NoteValue::Sixteenth, dotted: false, triplet: false }
     }
@@ -291,6 +292,7 @@ impl GridValue {
     /// The next larger or smaller menu value of the same kind, or `self` at either end. Note values keep
     /// their dot or triplet modifier.
     pub fn stepped(self, larger: bool) -> GridValue {
+        /// Finds the next value in a numeric increment ladder without wrapping.
         fn next<T: PartialOrd + Copy>(ladder: &[T], v: T, larger: bool) -> Option<T> {
             if larger { ladder.iter().copied().find(|x| *x > v) } else { ladder.iter().rev().copied().find(|x| *x < v) }
         }
@@ -484,6 +486,7 @@ mod tests {
         assert_eq!(g.lines(0, 24_000, sr, &map, rate, 100), vec![0, 6000, 12000, 18000]);
     }
 
+    /// Absolute increments report their expected sample lengths at a fixed rate.
     #[test]
     fn absolute_grids() {
         let (sr, map, rate) = (SampleRate::HZ_48000, TempoMap::default(), FrameRate::Fps25);
@@ -519,6 +522,7 @@ mod tests {
         }
     }
 
+    /// Legacy frame grids stay aligned to exact frame starts at fractional rates.
     #[test]
     fn frame_grid_lines_land_on_frame_starts() {
         let sr = SampleRate::HZ_48000;
@@ -574,6 +578,7 @@ mod tests {
         assert_eq!(d.step_samples(0, sr, &map, rate), 36_000);
     }
 
+    /// Stepping follows each menu ladder and stops at its endpoints.
     #[test]
     fn values_step_to_the_next_larger_or_smaller() {
         let note = |value, triplet| GridValue::Note { value, dotted: false, triplet };

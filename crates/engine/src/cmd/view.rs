@@ -5,6 +5,7 @@ use crate::{Engine, Result, cmd};
 use serde_json::{Value, json};
 use soundcraft_time::{FeetFramesValue, GridScale, GridValue, MAX_POSITION, NoteValue, TimeFormat, TimecodeValue};
 
+/// Returns commands that control saved view, counter, Grid, and Nudge state.
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(view "view.zoom_in", "Zoom In", [], Some("Cmd+]"), "{}", always, |e, _| zoom(e, 0.5, None)),
@@ -220,7 +221,8 @@ pub fn grid_param(p: &Value, key: &str) -> Option<GridValue> {
     let s = v.as_str()?.trim().to_ascii_lowercase();
     let triplet = s.ends_with('t') || s.contains("triplet");
     let dotted = s.ends_with('.') || s.contains("dotted");
-    let core = s.trim_end_matches(['t', '.']).replace("triplet", "").replace("dotted", "");
+    let core = s.replace("triplet", "").replace("dotted", "");
+    let core = core.trim().trim_end_matches(['t', '.']);
     let value = match core.trim() {
         "1 bar" | "bar" => NoteValue::Bar,
         "1/1" | "whole" | "whole note" => NoteValue::Whole,
@@ -239,10 +241,12 @@ pub fn grid_param(p: &Value, key: &str) -> Option<GridValue> {
 mod tests {
     use super::*;
     use soundcraft_time::Samples;
+    /// Grid values accept compact and word-form musical modifiers plus every absolute scale.
     #[test]
     fn grid_values_parse() {
         assert_eq!(grid_param(&json!({"v": "1/16"}), "v"), Some(GridValue::Note { value: NoteValue::Sixteenth, dotted: false, triplet: false }));
         assert_eq!(grid_param(&json!({"v": "1/8t"}), "v"), Some(GridValue::Note { value: NoteValue::Eighth, dotted: false, triplet: true }));
+        assert_eq!(grid_param(&json!({"v": "1/8 triplet"}), "v"), Some(GridValue::Note { value: NoteValue::Eighth, dotted: false, triplet: true }));
         assert_eq!(grid_param(&json!({"v": "1/4."}), "v"), Some(GridValue::Note { value: NoteValue::Quarter, dotted: true, triplet: false }));
         assert_eq!(grid_param(&json!({"v": "1/1"}), "v"), Some(GridValue::Note { value: NoteValue::Whole, dotted: false, triplet: false }));
         assert_eq!(grid_param(&json!({"v": "whole note"}), "v"), Some(GridValue::Note { value: NoteValue::Whole, dotted: false, triplet: false }));
@@ -303,6 +307,7 @@ mod tests {
         assert_eq!(state(&e), before);
     }
 
+    /// Grid and Nudge steps drive edit movement while preserving their selected increments.
     #[test]
     fn grid_and_nudge_values_step_and_nudges_can_use_the_next_value() {
         let mut e = Engine::default();

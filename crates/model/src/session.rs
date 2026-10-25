@@ -147,6 +147,7 @@ pub struct ZoomState {
 }
 
 impl Default for ZoomState {
+    /// Starts with a practical overview zoom and five reusable preset levels.
     fn default() -> Self {
         ZoomState { samples_per_px: 1024.0, scroll: 0, waveform_zoom: 1.0, presets: [64.0, 256.0, 1024.0, 4096.0, 16384.0] }
     }
@@ -253,6 +254,7 @@ fn yes() -> bool {
 }
 
 impl Default for EditState {
+    /// Starts the Edit window in Slip mode with independent Grid and Nudge scales.
     fn default() -> Self {
         EditState {
             tool: Tool::Smart,
@@ -503,14 +505,19 @@ impl Session {
     }
 
     /// Collects unique active-playlist clip boundaries and memory-location boundaries in time order.
-    fn clip_marker_grid_points(&self) -> Vec<Samples> {
-        let mut points = vec![0];
+    fn clip_marker_grid_points(&self, keep: impl Fn(Samples) -> bool) -> Vec<Samples> {
+        let mut points = Vec::new();
+        if keep(0) {
+            points.push(0);
+        }
         for clip in self.tracks.iter().flat_map(|track| track.clips()) {
-            points.extend([clip.start, clip.end()]);
+            points.extend([clip.start, clip.end()].into_iter().filter(|point| keep(*point)));
         }
         for marker in &self.markers {
-            points.push(marker.start);
-            if marker.end != marker.start {
+            if keep(marker.start) {
+                points.push(marker.start);
+            }
+            if marker.end != marker.start && keep(marker.end) {
                 points.push(marker.end);
             }
         }
@@ -524,7 +531,9 @@ impl Session {
         if !self.edit.grid_clips_markers {
             return self.edit.grid.lines(start, end, self.sample_rate, &self.tempo, self.frame_rate, max);
         }
-        self.clip_marker_grid_points().into_iter().filter(|point| *point >= start && *point < end).take(max).collect()
+        let mut points = self.clip_marker_grid_points(|point| point >= start && point < end);
+        points.truncate(max);
+        points
     }
 
     /// The current Grid line at or before `position`.
@@ -532,7 +541,7 @@ impl Session {
         if !self.edit.grid_clips_markers {
             return self.edit.grid.line_at_or_before(position, self.sample_rate, &self.tempo, self.frame_rate);
         }
-        self.clip_marker_grid_points().into_iter().take_while(|point| *point <= position).last().unwrap_or(position)
+        self.clip_marker_grid_points(|_| true).into_iter().take_while(|point| *point <= position).last().unwrap_or(position)
     }
 
     /// Snap to the nearest line in the current Grid.
@@ -540,7 +549,7 @@ impl Session {
         if !self.edit.grid_clips_markers {
             return self.edit.grid.snap(position, self.sample_rate, &self.tempo, self.frame_rate);
         }
-        self.clip_marker_grid_points()
+        self.clip_marker_grid_points(|_| true)
             .into_iter()
             .min_by_key(|point| i128::from(*point).saturating_sub(i128::from(position)).abs())
             .unwrap_or(position)
@@ -831,6 +840,7 @@ mod tests {
         assert_eq!(s.grid_line_at_or_before(2_800), 2_500);
         assert_eq!(s.snap_to_grid(2_800), 3_000);
         assert_eq!(s.snap_to_grid(3_700), 4_000);
+        assert_eq!(s.grid_lines(2_400, 4_100, 2), [2_500, 3_000]);
     }
 
     #[test]
