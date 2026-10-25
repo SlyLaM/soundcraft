@@ -39,7 +39,7 @@ pub fn media_online(s: &Session) -> (bool, bool) {
 
 /// Returns whether a referenced movie currently resolves to a file.
 pub(crate) fn video_source_online(source: &soundcraft_model::VideoSource) -> bool {
-    !source.path.is_empty() && crate::io::file_found(&source.path)
+    source.offline.is_none() && !source.path.is_empty() && crate::io::file_found(&source.path)
 }
 
 fn clip_json(e: &Engine, c: &Clip) -> Value {

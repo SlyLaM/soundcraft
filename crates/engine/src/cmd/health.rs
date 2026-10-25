@@ -177,6 +177,10 @@ mod tests {
         });
         e.session_mut().track_mut(track).unwrap().playlist_mut().unwrap().clips.push(Clip::video(clip, "Picture", source, 0, 0, 48_000));
         assert_eq!(e.execute("session.media_status", &json!({})).unwrap()["timeline_online"], true);
+        e.session_mut().videos[0].offline = Some("Movie path was refused".into());
+        assert_eq!(e.execute("session.media_status", &json!({})).unwrap()["timeline_online"], false);
+        assert_eq!(check(&mut e)["issues"][0]["message"], "Movie path was refused");
+        e.session_mut().videos[0].offline = None;
         std::fs::remove_file(&path).unwrap();
         let status = e.execute("session.media_status", &json!({})).unwrap();
         assert_eq!(status["timeline_online"], false);
