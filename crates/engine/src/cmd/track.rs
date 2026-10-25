@@ -1181,6 +1181,7 @@ mod tests {
         assert_eq!(vca(&e), Some(master.0));
     }
 
+    /// Bulk freeze is command-reachable and excludes hidden or inactive tracks.
     #[test]
     fn freeze_all_is_scriptable_and_skips_hidden_or_inactive_tracks() {
         let mut e = Engine::default();

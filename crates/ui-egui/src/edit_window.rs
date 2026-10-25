@@ -3132,6 +3132,7 @@ mod tests {
     use egui::accesskit::Role;
     use egui_kittest::{Harness, kittest::Queryable};
 
+    /// Labels at either edge remain wholly inside the ruler row.
     #[test]
     fn first_ruler_label_stays_inside_the_visible_row() {
         let row = Rect::from_min_max(pos2(100.0, 0.0), pos2(300.0, 20.0));
@@ -3227,6 +3228,7 @@ mod tests {
         }
     }
 
+    /// Stereo waveform values use the center of the channel beneath the pointer.
     #[test]
     fn audio_cursor_value_follows_the_vertical_position_in_each_channel() {
         assert_eq!(cursor_audio_amplitude(35.0, 10.0, 110.0, 2, 1.0), 0.0);

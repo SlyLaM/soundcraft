@@ -315,6 +315,7 @@ fn part(parts: &[i64], index: usize) -> i64 {
 mod tests {
     use super::*;
 
+    /// Whole-field entry assigns the newest digits to the smallest units.
     #[test]
     fn whole_counter_entry_fills_from_the_smallest_unit() {
         let session = Session::default();
@@ -325,6 +326,7 @@ mod tests {
         assert_eq!(edit.display(&session), "00:12:34:16");
     }
 
+    /// Typed unit edits clear smaller units while arrow edits preserve them.
     #[test]
     fn unit_typing_zeros_smaller_units_but_arrows_preserve_them() {
         let session = Session::default();
@@ -336,6 +338,7 @@ mod tests {
         assert_eq!(edit.display(&session), "01:06:00:00");
     }
 
+    /// Borrowing from a zero component leaves all smaller components intact.
     #[test]
     fn decrementing_a_zero_unit_borrows_without_changing_smaller_units() {
         let session = Session::default();
@@ -345,6 +348,7 @@ mod tests {
         assert_eq!(edit.display(&session), "00:59:00:15");
     }
 
+    /// Frame fields accept three digits at rates of 100 fps and above.
     #[test]
     fn high_frame_rate_timecode_accepts_three_frame_digits() {
         let session = Session { frame_rate: soundcraft_time::FrameRate::Fps120, ..Session::default() };
@@ -355,6 +359,7 @@ mod tests {
         assert_eq!(edit.display(&session), "00:00:00:119");
     }
 
+    /// Drop-frame stepping skips labels omitted at non-tenth minutes.
     #[test]
     fn drop_frame_entry_skips_labels_that_do_not_exist() {
         let session = Session { frame_rate: soundcraft_time::FrameRate::Fps29_97Drop, ..Session::default() };
@@ -366,6 +371,7 @@ mod tests {
         assert_eq!(edit.display(&session), "00:00:59;29");
     }
 
+    /// Horizontal navigation clamps at the first and last component.
     #[test]
     fn left_and_right_choose_adjacent_units() {
         let session = Session::default();
@@ -378,6 +384,7 @@ mod tests {
         assert_eq!(edit.unit, Some(2));
     }
 
+    /// Bars|Beats duration entry uses zero-based duration components.
     #[test]
     fn length_bar_entry_uses_zero_based_components() {
         let session = Session::default();
@@ -389,6 +396,7 @@ mod tests {
         assert_eq!(edit.display(&session), "0| 1| 000");
     }
 
+    /// Relative additions and subtractions operate on the active timebase.
     #[test]
     fn calculator_entry_adds_and_subtracts_a_time_value() {
         let session = Session::default();
@@ -408,6 +416,7 @@ mod tests {
         assert_eq!(edit.display(&session), "0:09.000");
     }
 
+    /// Main-counter borrowing uses its own meter when the selection is elsewhere.
     #[test]
     fn main_counter_borrows_with_the_meter_at_its_own_position() {
         let mut session = Session::default();

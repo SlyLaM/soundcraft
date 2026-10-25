@@ -179,6 +179,7 @@ mod tests {
         assert_eq!(grid_param(&json!({"v": "nonsense"}), "v"), None);
     }
 
+    /// Selecting the other counter's format swaps instead of duplicating it.
     #[test]
     fn choosing_a_counter_format_already_in_use_swaps_the_two_formats() {
         let mut e = Engine::default();

@@ -842,10 +842,12 @@ mod counter_input_tests {
     use soundcraft_engine::Engine;
     use soundcraft_time::Range;
 
+    /// Builds the minimal application state used by counter input tests.
     fn app() -> SoundApp {
         SoundApp::new(Engine::default(), None, Services::default())
     }
 
+    /// Sends a complete primary-button click to the UI test harness.
     fn click(harness: &mut Harness<'_, SoundApp>, pos: Pos2) {
         for pressed in [true, false] {
             harness.event(Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE });
@@ -854,6 +856,7 @@ mod counter_input_tests {
     }
 
     #[test]
+    /// Selects the full value on first click and a single unit on the next click.
     fn first_counter_click_selects_all_and_second_click_selects_a_unit() {
         let mut fonts_ready = false;
         let mut harness = Harness::builder().with_size(vec2(500.0, 100.0)).build_ui_state(
@@ -876,6 +879,7 @@ mod counter_input_tests {
     }
 
     #[test]
+    /// Leaves counter shortcuts available while an unrelated text field has focus.
     fn another_focused_field_keeps_the_counter_shortcut() {
         let ctx = egui::Context::default();
         let mut app = app();
@@ -889,6 +893,7 @@ mod counter_input_tests {
     }
 
     #[test]
+    /// Keeps typed values local to the editor until Enter commits them.
     fn typing_is_local_until_enter_commits_the_selection() {
         let ctx = egui::Context::default();
         let mut app = app();
@@ -912,6 +917,7 @@ mod counter_input_tests {
     }
 
     #[test]
+    /// Cancels an edit whose format no longer matches the main counter.
     fn changing_the_main_timebase_cancels_an_old_edit() {
         let ctx = egui::Context::default();
         let mut app = app();
@@ -923,6 +929,7 @@ mod counter_input_tests {
     }
 
     #[test]
+    /// Keeps keyboard navigation active without relying on transient widget focus.
     fn arrows_keep_editing_active_without_transient_widget_focus() {
         let ctx = egui::Context::default();
         let mut app = app();
@@ -939,6 +946,7 @@ mod counter_input_tests {
     }
 
     #[test]
+    /// Collapses a range when the main counter is moved inside that range.
     fn main_entry_inside_a_selection_moves_to_a_point() {
         let mut app = app();
         app.engine.session_mut().edit.selection = Range::new(100, 300);
@@ -948,6 +956,7 @@ mod counter_input_tests {
     }
 
     #[test]
+    /// Collapses invalid crossed selection bounds at the newly entered value.
     fn crossing_a_selection_boundary_collapses_it_at_the_edited_value() {
         let mut app = app();
         app.engine.session_mut().edit.selection = Range::new(100, 200);
@@ -960,6 +969,7 @@ mod counter_input_tests {
     }
 
     #[test]
+    /// Commits one selection boundary and advances to the next with slash.
     fn slash_commits_one_selection_field_and_moves_to_the_next() {
         let ctx = egui::Context::default();
         let mut app = app();
@@ -975,6 +985,7 @@ mod counter_input_tests {
     }
 
     #[test]
+    /// Applies counter arithmetic and closes the editor with a single Enter.
     fn calculator_entry_applies_and_closes_on_the_first_enter() {
         let ctx = egui::Context::default();
         let mut app = app();

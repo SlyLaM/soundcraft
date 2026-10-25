@@ -141,6 +141,7 @@ mod tests {
         }
     }
 
+    /// Active-playlist and complete-session availability are reported separately.
     #[test]
     fn media_status_distinguishes_active_and_alternate_playlists() {
         let mut e = crate::demo::demo_engine();
@@ -152,6 +153,7 @@ mod tests {
         assert_eq!(status["timeline_online"], expected_timeline);
     }
 
+    /// Missing and explicitly offline movies appear in both status and health reports.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn media_status_checks_referenced_video_files() {
