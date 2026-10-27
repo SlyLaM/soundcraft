@@ -439,12 +439,14 @@ impl GridValue {
     /// Maps a signed whole-second timecode label to its physical frame at a drop-frame rate.
     fn drop_second_frame(index: i64, rate: FrameRate) -> i64 {
         let seconds = index.unsigned_abs();
+        let total_minutes = seconds / 60;
+        let frames = if seconds.is_multiple_of(60) && !total_minutes.is_multiple_of(10) { if rate.nominal() >= 60 { 4 } else { 2 } } else { 0 };
         Timecode {
             negative: index < 0,
             hours: i64::try_from(seconds / 3600).unwrap_or(i64::MAX),
             minutes: i64::try_from((seconds / 60) % 60).unwrap_or(0),
             seconds: i64::try_from(seconds % 60).unwrap_or(0),
-            frames: 0,
+            frames,
         }
         .to_frames(rate)
     }
@@ -620,6 +622,14 @@ mod tests {
             }
             let labelled = Timecode { negative: false, hours: 0, minutes: 1, seconds: 1, frames: 0 }.to_samples(rate, sr);
             assert_eq!(grid.snap(labelled, sr, &map, rate), labelled);
+        }
+
+        for (rate, minute_frame) in [(FrameRate::Fps29_97Drop, 1800), (FrameRate::Fps59_94Drop, 3600)] {
+            let boundary = rate.samples_at_frame(minute_frame, sr);
+            assert_eq!(grid.line_at_or_before(boundary, sr, &map, rate), boundary, "{rate:?} positive minute boundary");
+            assert_eq!(grid.snap(boundary, sr, &map, rate), boundary, "{rate:?} positive minute snap");
+            assert_eq!(grid.line_at_or_before(-boundary, sr, &map, rate), -boundary, "{rate:?} negative minute boundary");
+            assert_eq!(grid.snap(-boundary, sr, &map, rate), -boundary, "{rate:?} negative minute snap");
         }
     }
 
