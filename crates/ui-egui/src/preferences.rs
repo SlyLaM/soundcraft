@@ -724,12 +724,12 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
     let screen = ctx.content_rect();
     let window_height = preferences_window_height(screen.height());
     let body_height = (PREFERENCES_BODY_HEIGHT - (PREFERENCES_WINDOW_HEIGHT - window_height)).max(160.0);
-    egui::Area::new(egui::Id::new("preferences_modal_blocker")).order(egui::Order::Middle).fixed_pos(screen.min).show(ctx, |ui| {
+    egui::Area::new(egui::Id::unique("preferences_modal_blocker")).order(egui::Order::Middle).fixed_pos(screen.min).show(ctx, |ui| {
         ui.allocate_exact_size(screen.size(), egui::Sense::click_and_drag());
     });
 
     let mut window = egui::Window::new("SoundCraft Preferences")
-        .id(egui::Id::new("preferences_window"))
+        .id(egui::Id::unique("preferences_window"))
         .open(&mut open)
         .order(egui::Order::Foreground)
         .collapsible(false)
@@ -743,11 +743,12 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             let (icon_rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), egui::Sense::hover());
             crate::icons::draw(ui.painter(), icon_rect.shrink(1.0), "zoom", Tokens::current().text_dim);
+            let search_label = ui.label("Search");
             let edit = egui::TextEdit::singleline(&mut search)
-                .id(egui::Id::new("preferences_search"))
+                .id(egui::Id::unique("preferences_search"))
                 .hint_text("Type to search preferences")
                 .desired_width(f32::INFINITY);
-            ui.add(edit);
+            ui.add(edit).labelled_by(search_label.id);
             if !search.is_empty() && ui.small_button("Clear").clicked() {
                 search.clear();
             }
@@ -930,23 +931,17 @@ fn control_ui(ui: &mut egui::Ui, page: PreferencesPage, section: &str, index: us
     let id = ("preference", page, section, index);
     match control {
         Control::Theme => {
-            ui.horizontal(|ui| {
-                ui.label(label("UI Theme"));
-                egui::ComboBox::from_id_salt(id).selected_text(draft.theme.label()).show_ui(ui, |ui| {
-                    for mode in ThemeMode::ALL {
-                        ui.selectable_value(&mut draft.theme, mode, mode.label());
-                    }
-                });
+            craft_ui::ComboBox::new(id, label("UI Theme")).selected_text(draft.theme.label()).show_ui(ui, |ui| {
+                for mode in ThemeMode::ALL {
+                    ui.selectable_value(&mut draft.theme, mode, mode.label());
+                }
             });
         }
         Control::ReduceVisualEffects => {
-            ui.horizontal(|ui| {
-                ui.label(label("Reduce Visual Effects"));
-                egui::ComboBox::from_id_salt(id).selected_text(draft.reduce_visual_effects.label()).show_ui(ui, |ui| {
-                    for mode in ReduceVisualEffects::ALL {
-                        ui.selectable_value(&mut draft.reduce_visual_effects, mode, mode.label());
-                    }
-                });
+            craft_ui::ComboBox::new(id, label("Reduce Visual Effects")).selected_text(draft.reduce_visual_effects.label()).show_ui(ui, |ui| {
+                for mode in ReduceVisualEffects::ALL {
+                    ui.selectable_value(&mut draft.reduce_visual_effects, mode, mode.label());
+                }
             });
         }
         Control::UndoLevels => {
@@ -961,10 +956,7 @@ fn control_ui(ui: &mut egui::Ui, page: PreferencesPage, section: &str, index: us
         }
         Control::Choice(text, value) | Control::ChoiceOptions(text, value, _) => {
             ui.add_enabled_ui(false, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(label(text));
-                    egui::ComboBox::from_id_salt(id).selected_text(value).show_ui(ui, |_| {});
-                });
+                craft_ui::ComboBox::new(id, label(text)).selected_text(value).show_ui(ui, |_| {});
             })
             .response
             .on_disabled_hover_text("This preference is not available yet.");
@@ -972,9 +964,9 @@ fn control_ui(ui: &mut egui::Ui, page: PreferencesPage, section: &str, index: us
         Control::Value(text, value) => {
             ui.add_enabled_ui(false, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(label(text));
+                    let caption = ui.label(label(text));
                     let mut shown = value.to_string();
-                    ui.add(egui::TextEdit::singleline(&mut shown).desired_width(96.0));
+                    ui.add(egui::TextEdit::singleline(&mut shown).desired_width(96.0)).labelled_by(caption.id);
                 });
             })
             .response
@@ -1166,14 +1158,36 @@ mod tests {
         assert!(app.preferences.search.is_empty());
     }
 
+    /// A broad scripted UI-state replacement also discards the closed window before another
+    /// command can reopen it, even when no UI frame runs between the two commands.
+    #[test]
+    fn ui_set_close_then_immediate_reopen_starts_without_the_canceled_draft() {
+        let mut app = SoundApp::new(Engine::default(), None, crate::Services::default());
+        app.ui.show_preferences = true;
+        app.preferences.search = "undo".into();
+        let mut draft = PreferencesDraft::from_live(&app);
+        draft.theme = ThemeMode::Light;
+        draft.undo_levels = 1;
+        app.preferences.draft = Some(draft);
+
+        assert!(app.run("ui.set", json!({"show_preferences": false})).is_ok());
+        assert_eq!(app.run("setup.preferences", json!({"value": true})), Ok(json!({"value": true})));
+
+        assert!(app.ui.show_preferences);
+        assert!(app.preferences.draft.is_none());
+        assert!(app.preferences.search.is_empty());
+        assert_eq!(app.ui.theme, ThemeMode::Dark);
+        assert_eq!(app.ui.undo_levels, 64);
+    }
+
     /// Enter belongs to the focused search field and must not apply its window.
     #[test]
     fn enter_in_search_does_not_apply_or_close_preferences() {
         let mut harness = preferences_harness(egui::vec2(1280.0, 1000.0));
         harness.run_steps(4);
-        harness.ctx.memory_mut(|memory| memory.request_focus(egui::Id::new("preferences_search")));
+        harness.ctx.memory_mut(|memory| memory.request_focus(egui::Id::unique("preferences_search")));
         harness.run_steps(1);
-        assert!(harness.ctx.memory(|memory| memory.has_focus(egui::Id::new("preferences_search"))));
+        assert!(harness.ctx.memory(|memory| memory.has_focus(egui::Id::unique("preferences_search"))));
         let state = harness.state_mut();
         state.preferences.draft.as_mut().unwrap().theme = ThemeMode::Light;
 
