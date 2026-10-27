@@ -4,7 +4,7 @@ use super::{CommandSpec, always};
 use crate::{Engine, Result, cmd};
 use serde_json::{Value, json};
 use soundcraft_model::ClipContent;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 /// Registers read-only session media diagnostics.
 pub fn specs() -> Vec<CommandSpec> {
@@ -77,12 +77,14 @@ fn report(e: &mut Engine, _: &Value) -> Result<Value> {
     }
     let mut clips = 0usize;
     let mut active_end = 0i64;
+    let mut referenced_audio = HashSet::new();
     for track in &s.tracks {
         for (index, playlist) in track.playlists.iter().enumerate() {
             let active = index == track.active_playlist;
             let ctx = ClipContext { track, playlist, active, session_sample_rate: s.sample_rate.hz() };
             for clip in &playlist.clips {
                 let ClipContent::Audio { source, offset } = clip.content else { continue };
+                referenced_audio.insert(source);
                 clips += 1;
                 if active {
                     active_end = active_end.max(clip.end());
@@ -91,6 +93,20 @@ fn report(e: &mut Engine, _: &Value) -> Result<Value> {
                 let audio = s.pool.get(source).map(|a| a.as_ref());
                 check_audio_clip(&ctx, clip, source, offset, metadata, audio, &mut issues);
             }
+        }
+    }
+    for source in s.sources.iter().filter(|source| !referenced_audio.contains(&source.id)) {
+        if !crate::inspect::audio_source_online(s, source.id) {
+            issues.push(json!({
+                "code": "unavailable_audio_source",
+                "message": "An audio source kept by the session is not loaded or playable. Restore or remove the source.",
+                "track": "Session",
+                "playlist": "",
+                "active": false,
+                "clip": "",
+                "source_id": source.id.0,
+                "path": source.path,
+            }));
         }
     }
     for source in &s.videos {
@@ -151,6 +167,26 @@ mod tests {
         assert_eq!(status["session_online"], false);
         let expected_timeline = e.session().tracks.iter().flat_map(|track| track.clips()).all(|clip| clip.source() != Some(id));
         assert_eq!(status["timeline_online"], expected_timeline);
+    }
+
+    /// An orphaned source that status marks offline also appears in the diagnostic report.
+    #[test]
+    fn health_report_explains_unplayable_unreferenced_audio_sources() {
+        let mut e = crate::demo::demo_engine();
+        let mut source = e.session().sources[0].clone();
+        source.id = SourceId(9_999);
+        source.name = "Orphaned source".into();
+        e.session_mut().sources.push(source);
+        let status = e.execute("session.media_status", &json!({})).unwrap();
+        assert_eq!(status["timeline_online"], true);
+        assert_eq!(status["session_online"], false);
+        let report = check(&mut e);
+        assert_eq!(report["healthy"], false);
+        assert!(
+            report["issues"]
+                .as_array()
+                .is_some_and(|issues| { issues.iter().any(|issue| issue["code"] == "unavailable_audio_source" && issue["source_id"] == 9_999) })
+        );
     }
 
     /// Missing and explicitly offline movies appear in both status and health reports.

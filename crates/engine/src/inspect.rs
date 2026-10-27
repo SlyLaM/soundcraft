@@ -8,18 +8,7 @@ use std::collections::HashSet;
 
 /// Whether media needed by the active playlists, and by the complete session, can be played.
 pub fn media_online(s: &Session) -> (bool, bool) {
-    let audio: HashSet<_> = s
-        .sources
-        .iter()
-        .filter_map(|source| {
-            let loaded = s.pool.get(source.id)?;
-            (loaded.buffer.sample_rate == s.sample_rate.hz()
-                && !loaded.buffer.channels.is_empty()
-                && loaded.frames() > 0
-                && loaded.buffer.channels.iter().all(|channel| channel.len() == loaded.frames()))
-            .then_some(source.id)
-        })
-        .collect();
+    let audio: HashSet<_> = s.sources.iter().filter(|source| audio_source_online(s, source.id)).map(|source| source.id).collect();
     let video: HashSet<_> = s.videos.iter().filter(|source| video_source_online(source)).map(|source| source.id).collect();
     let playable = |clip: &Clip| match &clip.content {
         ClipContent::Audio { source, offset } => {
@@ -35,6 +24,16 @@ pub fn media_online(s: &Session) -> (bool, bool) {
     let session_sources = audio.len() == s.sources.len() && video.len() == s.videos.len();
     let session = session_sources && s.all_clips().all(playable);
     (timeline, session)
+}
+
+/// Returns whether a session audio source is loaded and structurally playable.
+pub(crate) fn audio_source_online(s: &Session, source: soundcraft_model::SourceId) -> bool {
+    s.pool.get(source).is_some_and(|loaded| {
+        loaded.buffer.sample_rate == s.sample_rate.hz()
+            && !loaded.buffer.channels.is_empty()
+            && loaded.frames() > 0
+            && loaded.buffer.channels.iter().all(|channel| channel.len() == loaded.frames())
+    })
 }
 
 /// Returns whether a referenced movie currently resolves to a file.
